@@ -1,93 +1,96 @@
-"""Closet app contract: enums and shared thresholds. HUMAN-OWNED (lane A).
+"""Atelier contract v2: enums and shared thresholds. HUMAN-OWNED.
 
-Every agent reads this; no agent edits it. Change it only on the lane A laptop,
-agree with lane B, bump CONTRACT_VERSION in schemas.py, and push immediately.
+Every agent reads this; no agent edits it. Changes go through the PM, both humans agree,
+bump CONTRACT_VERSION in schemas.py, and push immediately.
 """
 from enum import Enum
 
 
 class Category(str, Enum):
-    top = "top"
-    bottom = "bottom"
-    dress = "dress"
-    outerwear = "outerwear"
-    shoes = "shoes"
-    accessory = "accessory"
+    """Which swipe list an item lands in and how outfit assembly treats it."""
+    tops = "tops"
+    bottoms = "bottoms"
+    jackets = "jackets"
 
 
-class Pattern(str, Enum):
-    solid = "solid"
-    stripe = "stripe"
-    plaid = "plaid"
-    floral = "floral"
-    graphic = "graphic"
-    other = "other"
-
-
-class Ownership(str, Enum):
-    owned = "owned"
-    catalog = "catalog"
-
-
-class Source(str, Enum):
-    scan = "scan"          # waist-up camera capture, clothing segmentation
-    flatlay = "flatlay"    # photo upload of one garment, background removal
-
-
-class GarmentStatus(str, Enum):
-    ready = "ready"                  # fully processed and classified
-    needs_review = "needs_review"    # classification failed twice; user must set the category
-    failed = "failed"                # processing failed; not usable in outfits
-
-
-class HeadSource(str, Enum):
-    generated = "generated"            # drawn head from Gemini image generation
-    photo_fallback = "photo_fallback"  # face photo cut out, used when generation fails
-
-
-class ReasonSource(str, Enum):
-    llm = "llm"            # reason written by the Gemini re-rank
-    template = "template"  # fallback reason built from the score breakdown
-
-
-class SegmentClass(str, Enum):
-    """Garment classes the clothing segmenter can return for a scan."""
-    upper_clothes = "upper_clothes"
-    coat = "coat"
+class GarmentType(str, Enum):
+    """Which pose region vision segments. A dress is category tops, garment_type dress."""
+    shirt = "shirt"
     dress = "dress"
     pants = "pants"
     skirt = "skirt"
-    other = "other"
+    shorts = "shorts"
+    jacket = "jacket"
+    coat = "coat"
+
+
+# Amendment A1: the only permitted (category, garment_type) pairs.
+VALID_PAIRS: dict[Category, frozenset[GarmentType]] = {
+    Category.tops: frozenset({GarmentType.shirt, GarmentType.dress}),
+    Category.bottoms: frozenset({GarmentType.pants, GarmentType.skirt, GarmentType.shorts}),
+    Category.jackets: frozenset({GarmentType.jacket, GarmentType.coat}),
+}
+
+# V-A2: item slug prefix, "<prefix>_<6 lowercase hex>", e.g. top_a3f9c2, dress_7b1e04.
+SLUG_PREFIX: dict[GarmentType, str] = {
+    GarmentType.shirt: "top",
+    GarmentType.dress: "dress",
+    GarmentType.pants: "bottom",
+    GarmentType.skirt: "bottom",
+    GarmentType.shorts: "bottom",
+    GarmentType.jacket: "jacket",
+    GarmentType.coat: "jacket",
+}
+
+
+class Strategy(str, Enum):
+    """S-S2 outfit strategies, in degradation-ladder order."""
+    neutral_anchor = "neutral_anchor"
+    everyday_neutral_base = "everyday_neutral_base"
+    analogous = "analogous"
+    complementary = "complementary"
+    monochrome_highlight = "monochrome_highlight"
+    sandwich = "sandwich"               # requires a jacket
+
+
+class RenderStatus(str, Enum):
+    pending = "pending"
+    done = "done"
+    failed = "failed"
+
+
+class CandidateVariant(str, Enum):
+    """V-S3: the three analyze candidates, in index order 0, 1, 2."""
+    tight = "tight"
+    balanced = "balanced"
+    generous = "generous"
 
 
 class ErrorCode(str, Enum):
-    invalid_request = "invalid_request"
-    not_found = "not_found"
-    no_face_detected = "no_face_detected"
-    no_garments_found = "no_garments_found"
-    mask_out_of_range = "mask_out_of_range"
-    classification_failed = "classification_failed"
-    no_valid_outfits = "no_valid_outfits"
+    invalid_request = "invalid_request"          # bad field, invalid category/garment_type pair, too large
+    not_found = "not_found"                      # unknown slug, avatar_id, render_id
+    pose_rejected = "pose_rejected"              # avatar scan: message is the actionable reason
+    no_person_detected = "no_person_detected"    # analyze or avatar scan found nobody
+    unsupported_image = "unsupported_image"      # not JPEG/PNG/WebP, or undecodable
+    analyze_failed = "analyze_failed"            # segmentation raised
+    handle_expired = "handle_expired"            # temp_handle unknown, used, or swept
     gemini_unavailable = "gemini_unavailable"
+    not_implemented = "not_implemented"          # 501 from a route a lane hasn't built yet
 
 
 # ---- Shared thresholds (one source of truth for pipeline, scorer, and tests) ----
 
-IMAGE_LONG_SIDE_PX = 1024      # preprocess resizes the long side to this
-MASK_MIN_FRACTION = 0.03       # flat-lay mask smaller than this is an error
-MASK_MAX_FRACTION = 0.95       # flat-lay mask larger than this is an error
-SEGMENT_MIN_FRACTION = 0.02    # scan regions smaller than this are dropped
+IMAGE_LONG_SIDE_PX = 1024          # preprocess resizes the long side to this
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024  # V-E5
+CANDIDATE_COUNT = 3                # V-E1: analyze always returns exactly three
 
-MIN_COLORS = 1                 # a plain garment can have a single color
-MAX_COLORS = 4
-COLOR_MERGE_DELTA_E = 8.0      # merge k-means clusters closer than this (CIEDE2000)
-MIN_COLOR_WEIGHT = 0.10        # drop clusters with less than this share of pixels
-NEUTRAL_CHROMA_MAX = 12.0      # dominant LCh chroma below this => is_neutral
+COLOR_KMEANS_K = 5                 # V-C2: k-means in CIELAB over alpha > 0 pixels
+SECONDARY_MIN_MASS = 0.20          # V-C3: later cluster needs >= 20% of masked pixels
+SECONDARY_MIN_DELTA_E = 20.0       # V-C3: ... and >= this CIEDE2000 from the primary
+MAX_ASSIGNMENT_DELTA_E = 25.0      # V-C4: must equal colors.json max_assignment_delta_e
+UNMAPPED = "unmapped"              # V-C4: name and family beyond MAX_ASSIGNMENT_DELTA_E
+NEUTRAL_CHROMA_MAX = 12.0          # V-C5: is_neutral == (LCh chroma < this)
 
-FORMALITY_MIN = 1              # 1 = loungewear, 3 = smart casual, 5 = formal
-FORMALITY_MAX = 5
-
-OUTFIT_MIN_ITEMS = 2           # dress + shoes
-OUTFIT_MAX_ITEMS = 4           # top + bottom + shoes + outerwear
-REASON_MAX_CHARS = 140
-RECOMMEND_MAX_LIMIT = 5
+OUTFITS_MAX = 5                    # S-L1
+OUTFITS_MAX_PER_STRATEGY = 2       # S-L1
+OUTFITS_MAX_SHARING_GARMENT = 2    # S-L1; jackets exempt

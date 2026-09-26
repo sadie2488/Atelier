@@ -58,6 +58,7 @@ SHARED_WRITABLE = [
 FROZEN = [
     "contract/**",
     "requirements.txt",
+    "backend/requirements.txt",
     "backend/main.py",
     "backend/db.py",
     "backend/config.py",
@@ -105,6 +106,43 @@ def matches(path: str, patterns) -> bool:
     return False
 
 
+LANE_LINE = re.compile(r"ATELIER_LANE=([a-z]+)", re.IGNORECASE)
+
+
+def resolve_lane(payload: dict) -> str:
+    """Which lane is making this tool call?
+
+    1. ATELIER_LANE in the environment (a lane running as its own session).
+    2. agent_type, when the subagent was launched as a .claude/agents/<lane>.md type.
+    3. A subagent (agent_id set) whose dispatch prompt starts with ATELIER_LANE=<lane>.
+       Subagents share the PM's environment, so the prompt is the only per-lane signal;
+       the subagent cannot rewrite its own first transcript line.
+    Returns "" for the PM (no agent_id) or a subagent dispatched without a lane.
+    """
+    lane = os.environ.get("ATELIER_LANE", "").strip().lower()
+    if lane:
+        return lane
+    agent_type = (payload.get("agent_type") or "").strip().lower()
+    if agent_type in LANE_SCOPE:
+        return agent_type
+    agent_id = payload.get("agent_id")
+    transcript = payload.get("transcript_path") or ""
+    if not agent_id or not transcript:
+        return ""
+    sub = os.path.join(os.path.splitext(transcript)[0], "subagents", f"agent-{agent_id}.jsonl")
+    try:
+        with open(sub, encoding="utf-8") as f:
+            first = json.loads(f.readline())
+    except (OSError, ValueError):
+        return ""
+    content = (first.get("message") or {}).get("content", "")
+    if not isinstance(content, str):
+        content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+    head = content.strip().splitlines()[0] if content.strip() else ""
+    m = LANE_LINE.match(head.strip())
+    return m.group(1).lower() if m else ""
+
+
 def deny(reason: str):
     print(reason, file=sys.stderr)
     sys.exit(2)
@@ -116,7 +154,7 @@ def main():
     except Exception:
         sys.exit(0)  # Malformed payload: fail open rather than wedging the session.
 
-    lane = os.environ.get("ATELIER_LANE", "").strip().lower()
+    lane = resolve_lane(payload)
     if not lane:
         sys.exit(0)  # PM session: unrestricted by design.
 

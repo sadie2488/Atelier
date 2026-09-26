@@ -22,7 +22,17 @@ both sides.
 - No file size cap is enforced server-side. **Downscale captures client-side to ~1080px on the
   long edge** — not as a restriction, as latency. Most of a phone photo's resolution is unused
   by segmentation and generation, and upload time is the user-visible cost.
-- Errors return a contract-shaped error body, never a bare string or stack trace.
+- Errors return a contract-shaped error body, never a bare string or stack trace:
+  `{"error": {"code": "<ErrorCode>", "message": "<human-readable>"}}`. Codes: `invalid_request`,
+  `not_found`, `pose_rejected` (message is the actionable reason), `no_person_detected`,
+  `unsupported_image`, `analyze_failed`, `handle_expired`, `gemini_unavailable`,
+  `not_implemented` (501 while a lane hasn't built the route yet).
+- **Types and examples:** generate TypeScript from `contract/schema.json`. Every endpoint has a
+  request/response example in `contract/fixtures/api/` — build against those until the real
+  route lands.
+- **ID formats:** items `top_a3f9c2` / `dress_…` / `bottom_…` / `jacket_…` (prefix follows
+  `garment_type`); `tmp_<12 hex>` temp handles; `avatar_<6 hex>`; `outfit_<6 hex>`;
+  `render_<12 hex>`.
 
 ---
 
@@ -206,3 +216,4 @@ Append here on every change so the frontend can diff quickly.
 |---|---|
 | — | Initial version. Polling chosen for the render swap; multipart for uploads; dresses filed under tops. |
 | — | Added `garment_type` to analyze — required alongside `category`. |
+| 2026-09-26 | Contract 2.0.0 frozen: this document's endpoints are now the contract. Added error codes, ID formats, and pointers to `contract/schema.json` and `contract/fixtures/api/`. Analyze form fields: `category`, `garment_type`, optional `color`, optional `item_name`. `POST /api/outfits/generate` takes `{"limit": 1..5}` (default 5; `{}` is valid). All routes return 501 `not_implemented` until each lane lands. |

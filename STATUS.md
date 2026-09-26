@@ -1,3 +1,5 @@
+> **Superseded (2026-09-26):** this file belongs to the earlier two-lane plan. The project now runs Plan 2 (PM + vision/styling/avatar subagents): see `CLAUDE.md` and `PM_TASKS.md`.
+
 # STATUS.md — live coordination between Lane A and Lane B
 
 A status board, not a log. Both agents read this before starting a task and

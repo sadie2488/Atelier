@@ -1,0 +1,74 @@
+{
+  "temp_handle": "tmp_64e9a0de43e9",
+  "candidates": [
+    {
+      "index": 0,
+      "variant": "tight",
+      "cutout_url": "/media/tmp/tmp_64e9a0de43e9_0.png",
+      "primary_color": {
+        "lab": [
+          42.17,
+          -18.22,
+          18.09
+        ],
+        "lch": [
+          42.17,
+          25.68,
+          135.21
+        ],
+        "hex": "#4f6b45",
+        "name": "green",
+        "family": "green",
+        "is_neutral": false,
+        "everyday_neutral": false
+      },
+      "secondary_color": null
+    },
+    {
+      "index": 1,
+      "variant": "balanced",
+      "cutout_url": "/media/tmp/tmp_64e9a0de43e9_1.png",
+      "primary_color": {
+        "lab": [
+          41.69,
+          -18.63,
+          18.02
+        ],
+        "lch": [
+          41.69,
+          25.92,
+          135.95
+        ],
+        "hex": "#4d6a44",
+        "name": "green",
+        "family": "green",
+        "is_neutral": false,
+        "everyday_neutral": false
+      },
+      "secondary_color": null
+    },
+    {
+      "index": 2,
+      "variant": "generous",
+      "cutout_url": "/media/tmp/tmp_64e9a0de43e9_2.png",
+      "primary_color": {
+        "lab": [
+          43.06,
+          -17.61,
+          17.56
+        ],
+        "lch": [
+          43.06,
+          24.87,
+          135.08
+        ],
+        "hex": "#526d48",
+        "name": "green",
+        "family": "green",
+        "is_neutral": false,
+        "everyday_neutral": false
+      },
+      "secondary_color": null
+    }
+  ]
+}

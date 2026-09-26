@@ -61,11 +61,8 @@ implementation is wrong. Never adjust an expectation to make output pass; report
 
 | Command | Use it for |
 |---|---|
-| `python tools/run_expectations.py` | The 12 verified outcomes, pass/fail with expected vs actual. Your primary signal. |
-| `python tools/score_pair.py <a> <b>` | Full breakdown for two fixture items — relation, neutral handling, each term. Debug with this, not prints. |
-| `python tools/explain_outfit.py <outfit>` | Which strategy produced an outfit and why it ranked where it did. |
+| `python backend/styling/scripts/<name>.py` | Your own debug and probe scripts (inspect an image, run one fixture end to end, probe Gemini). Write them as needed; they are in your scope. Keep Gemini probes rare — they cost quota. |
 | `python tools/validate_response.py outfits <json>` | Validate against the frozen contract. |
-| `python tools/gemini_probe.py --lane styling` | One explanation request; reports latency and fallback. Costs quota — use sparingly. |
 | `python tools/request_dep.py` | Request a dependency from the PM. |
 | `pytest backend/tests/test_styling.py` | Your tests. Keep them green. |
 

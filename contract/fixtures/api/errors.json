@@ -1,20 +1,32 @@
 [
   {
     "error": {
-      "code": "no_face_detected",
-      "message": "No face found in the capture. Center your face in the outline."
+      "code": "pose_rejected",
+      "message": "Move your arms slightly away from your body."
     }
   },
   {
     "error": {
-      "code": "no_garments_found",
-      "message": "No garments detected. Step back so your top is in frame."
+      "code": "no_person_detected",
+      "message": "No person found in the photo. Step back so your whole body is in the outline."
+    }
+  },
+  {
+    "error": {
+      "code": "invalid_request",
+      "message": "garment_type 'pants' is not valid for category 'tops' (allowed: dress, shirt)."
+    }
+  },
+  {
+    "error": {
+      "code": "handle_expired",
+      "message": "Temp handle tmp_64e9a0de43e9 has expired. Please rescan the item."
     }
   },
   {
     "error": {
       "code": "not_found",
-      "message": "Garment 100000000000000000000999 does not exist."
+      "message": "Item top_000000 does not exist."
     }
   }
 ]

@@ -1,29 +1,91 @@
 {
   "$defs": {
+    "AnalyzeForm": {
+      "additionalProperties": false,
+      "description": "Form fields of POST /items/analyze (multipart), besides the `image` file part.\n\nNot a JSON body; published so the backend can validate the form and the frontend can\ntype it. An invalid category/garment_type pair is a 400 invalid_request.",
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "garment_type": {
+          "$ref": "#/$defs/GarmentType"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        },
+        "item_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Name"
+        }
+      },
+      "required": [
+        "category",
+        "garment_type"
+      ],
+      "title": "AnalyzeForm",
+      "type": "object"
+    },
+    "AnalyzeResponse": {
+      "additionalProperties": false,
+      "description": "POST /items/analyze. Persists nothing; exactly three candidates, index 0..2 in order.",
+      "properties": {
+        "temp_handle": {
+          "pattern": "^tmp_[0-9a-f]{12}$",
+          "title": "Temp Handle",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Candidates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "temp_handle",
+        "candidates"
+      ],
+      "title": "AnalyzeResponse",
+      "type": "object"
+    },
     "Avatar": {
       "additionalProperties": false,
+      "description": "GET /avatar/{avatar_id}",
       "properties": {
-        "id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Id",
+        "avatar_id": {
+          "pattern": "^avatar_[0-9a-f]{6}$",
+          "title": "Avatar Id",
           "type": "string"
         },
-        "user_id": {
-          "title": "User Id",
-          "type": "string"
-        },
-        "head_url": {
+        "wireframe_url": {
           "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
-          "title": "Head Url",
+          "title": "Wireframe Url",
           "type": "string"
         },
-        "head_source": {
-          "$ref": "#/$defs/HeadSource"
-        },
-        "is_guest": {
-          "default": false,
-          "title": "Is Guest",
-          "type": "boolean"
+        "avatar_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Avatar Url",
+          "type": "string"
         },
         "created_at": {
           "format": "date-time",
@@ -32,74 +94,154 @@
         }
       },
       "required": [
-        "id",
-        "user_id",
-        "head_url",
-        "head_source",
+        "avatar_id",
+        "wireframe_url",
+        "avatar_url",
         "created_at"
       ],
       "title": "Avatar",
       "type": "object"
     },
-    "AvatarCreateResponse": {
+    "AvatarScanResponse": {
       "additionalProperties": false,
-      "description": "POST /avatar  (multipart: image=<face capture>, is_guest=<bool>)",
+      "description": "POST /avatar/scan (multipart: image). A pose failure is 422 pose_rejected with an actionable message.",
       "properties": {
-        "avatar": {
-          "$ref": "#/$defs/Avatar"
+        "avatar_id": {
+          "pattern": "^avatar_[0-9a-f]{6}$",
+          "title": "Avatar Id",
+          "type": "string"
+        },
+        "wireframe_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Wireframe Url",
+          "type": "string"
+        },
+        "avatar_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Avatar Url",
+          "type": "string"
         }
       },
       "required": [
-        "avatar"
+        "avatar_id",
+        "wireframe_url",
+        "avatar_url"
       ],
-      "title": "AvatarCreateResponse",
+      "title": "AvatarScanResponse",
       "type": "object"
     },
     "Candidate": {
       "additionalProperties": false,
-      "description": "One detected garment region, shown to the user to tap before saving.",
       "properties": {
-        "candidate_id": {
-          "pattern": "^c[0-9]+$",
-          "title": "Candidate Id",
-          "type": "string"
+        "index": {
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
         },
-        "segment_class": {
-          "$ref": "#/$defs/SegmentClass"
+        "variant": {
+          "$ref": "#/$defs/CandidateVariant"
         },
         "cutout_url": {
           "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
           "title": "Cutout Url",
           "type": "string"
         },
-        "bbox": {
-          "$ref": "#/$defs/Rect"
+        "primary_color": {
+          "$ref": "#/$defs/ExtractedColor"
+        },
+        "secondary_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExtractedColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
-        "candidate_id",
-        "segment_class",
+        "index",
+        "variant",
         "cutout_url",
-        "bbox"
+        "primary_color"
       ],
       "title": "Candidate",
       "type": "object"
     },
-    "Category": {
+    "CandidateVariant": {
+      "description": "V-S3: the three analyze candidates, in index order 0, 1, 2.",
       "enum": [
-        "top",
-        "bottom",
-        "dress",
-        "outerwear",
-        "shoes",
-        "accessory"
+        "tight",
+        "balanced",
+        "generous"
+      ],
+      "title": "CandidateVariant",
+      "type": "string"
+    },
+    "Category": {
+      "description": "Which swipe list an item lands in and how outfit assembly treats it.",
+      "enum": [
+        "tops",
+        "bottoms",
+        "jackets"
       ],
       "title": "Category",
       "type": "string"
     },
-    "Color": {
+    "ErrorBody": {
       "additionalProperties": false,
-      "description": "One color cluster of a garment, computed on opaque cutout pixels only.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ErrorBody",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "not_found",
+        "pose_rejected",
+        "no_person_detected",
+        "unsupported_image",
+        "analyze_failed",
+        "handle_expired",
+        "gemini_unavailable",
+        "not_implemented"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "description": "Every 4xx/5xx response body.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "ErrorResponse",
+      "type": "object"
+    },
+    "ExtractedColor": {
+      "additionalProperties": false,
+      "description": "One extracted color (V-C1..V-C5). Numeric values are the truth; names are a lookup.",
       "properties": {
         "lab": {
           "maxItems": 3,
@@ -140,365 +282,47 @@
           "title": "Hex",
           "type": "string"
         },
-        "weight": {
-          "exclusiveMinimum": 0,
-          "maximum": 1,
-          "title": "Weight",
-          "type": "number"
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "family": {
+          "title": "Family",
+          "type": "string"
+        },
+        "is_neutral": {
+          "title": "Is Neutral",
+          "type": "boolean"
+        },
+        "everyday_neutral": {
+          "title": "Everyday Neutral",
+          "type": "boolean"
         }
       },
       "required": [
         "lab",
         "lch",
         "hex",
-        "weight"
-      ],
-      "title": "Color",
-      "type": "object"
-    },
-    "DeletedCounts": {
-      "additionalProperties": false,
-      "properties": {
-        "avatars": {
-          "minimum": 0,
-          "title": "Avatars",
-          "type": "integer"
-        },
-        "garments": {
-          "minimum": 0,
-          "title": "Garments",
-          "type": "integer"
-        },
-        "outfits": {
-          "minimum": 0,
-          "title": "Outfits",
-          "type": "integer"
-        },
-        "renders": {
-          "minimum": 0,
-          "title": "Renders",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "avatars",
-        "garments",
-        "outfits",
-        "renders"
-      ],
-      "title": "DeletedCounts",
-      "type": "object"
-    },
-    "DemoResetResponse": {
-      "additionalProperties": false,
-      "description": "POST /demo/reset  (removes guest avatars and garments and everything derived from them)",
-      "properties": {
-        "deleted": {
-          "$ref": "#/$defs/DeletedCounts"
-        }
-      },
-      "required": [
-        "deleted"
-      ],
-      "title": "DemoResetResponse",
-      "type": "object"
-    },
-    "ErrorBody": {
-      "additionalProperties": false,
-      "properties": {
-        "code": {
-          "$ref": "#/$defs/ErrorCode"
-        },
-        "message": {
-          "title": "Message",
-          "type": "string"
-        }
-      },
-      "required": [
-        "code",
-        "message"
-      ],
-      "title": "ErrorBody",
-      "type": "object"
-    },
-    "ErrorCode": {
-      "enum": [
-        "invalid_request",
-        "not_found",
-        "no_face_detected",
-        "no_garments_found",
-        "mask_out_of_range",
-        "classification_failed",
-        "no_valid_outfits",
-        "gemini_unavailable"
-      ],
-      "title": "ErrorCode",
-      "type": "string"
-    },
-    "ErrorResponse": {
-      "additionalProperties": false,
-      "description": "Every 4xx/5xx response body.",
-      "properties": {
-        "error": {
-          "$ref": "#/$defs/ErrorBody"
-        }
-      },
-      "required": [
-        "error"
-      ],
-      "title": "ErrorResponse",
-      "type": "object"
-    },
-    "Garment": {
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Id",
-          "type": "string"
-        },
-        "user_id": {
-          "title": "User Id",
-          "type": "string"
-        },
-        "photo_id": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{24}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Photo Id"
-        },
-        "source": {
-          "$ref": "#/$defs/Source"
-        },
-        "ownership": {
-          "$ref": "#/$defs/Ownership"
-        },
-        "status": {
-          "$ref": "#/$defs/GarmentStatus"
-        },
-        "is_guest": {
-          "default": false,
-          "title": "Is Guest",
-          "type": "boolean"
-        },
-        "cutout_url": {
-          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
-          "title": "Cutout Url",
-          "type": "string"
-        },
-        "bbox": {
-          "$ref": "#/$defs/Rect"
-        },
-        "colors": {
-          "items": {
-            "$ref": "#/$defs/Color"
-          },
-          "maxItems": 4,
-          "minItems": 1,
-          "title": "Colors",
-          "type": "array"
-        },
-        "is_neutral": {
-          "title": "Is Neutral",
-          "type": "boolean"
-        },
-        "category": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Category"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "subcategory": {
-          "anyOf": [
-            {
-              "maxLength": 40,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Subcategory"
-        },
-        "pattern": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pattern"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "formality": {
-          "anyOf": [
-            {
-              "maximum": 5,
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Formality"
-        },
-        "style_tags": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 8,
-          "title": "Style Tags",
-          "type": "array"
-        },
-        "user_edited": {
-          "default": false,
-          "title": "User Edited",
-          "type": "boolean"
-        },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "user_id",
-        "source",
-        "ownership",
-        "status",
-        "cutout_url",
-        "bbox",
-        "colors",
+        "name",
+        "family",
         "is_neutral",
-        "created_at"
+        "everyday_neutral"
       ],
-      "title": "Garment",
+      "title": "ExtractedColor",
       "type": "object"
     },
-    "GarmentListResponse": {
-      "additionalProperties": false,
-      "description": "GET /garments?ownership=owned|catalog&include_guest=true|false",
-      "properties": {
-        "garments": {
-          "items": {
-            "$ref": "#/$defs/Garment"
-          },
-          "title": "Garments",
-          "type": "array"
-        }
-      },
-      "required": [
-        "garments"
-      ],
-      "title": "GarmentListResponse",
-      "type": "object"
-    },
-    "GarmentPatch": {
-      "additionalProperties": false,
-      "description": "PATCH /garments/{id}  (only the fields being changed; sets user_edited)",
-      "properties": {
-        "category": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Category"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "subcategory": {
-          "anyOf": [
-            {
-              "maxLength": 40,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Subcategory"
-        },
-        "pattern": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pattern"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "formality": {
-          "anyOf": [
-            {
-              "maximum": 5,
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Formality"
-        },
-        "colors": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/Color"
-              },
-              "maxItems": 4,
-              "minItems": 1,
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Colors"
-        }
-      },
-      "title": "GarmentPatch",
-      "type": "object"
-    },
-    "GarmentStatus": {
+    "GarmentType": {
+      "description": "Which pose region vision segments. A dress is category tops, garment_type dress.",
       "enum": [
-        "ready",
-        "needs_review",
-        "failed"
+        "shirt",
+        "dress",
+        "pants",
+        "skirt",
+        "shorts",
+        "jacket",
+        "coat"
       ],
-      "title": "GarmentStatus",
-      "type": "string"
-    },
-    "HeadSource": {
-      "enum": [
-        "generated",
-        "photo_fallback"
-      ],
-      "title": "HeadSource",
+      "title": "GarmentType",
       "type": "string"
     },
     "HealthResponse": {
@@ -509,106 +333,143 @@
           "title": "Status",
           "type": "string"
         },
-        "contract_version": {
-          "title": "Contract Version",
+        "db": {
+          "const": "ok",
+          "title": "Db",
           "type": "string"
         }
       },
       "required": [
         "status",
-        "contract_version"
+        "db"
       ],
       "title": "HealthResponse",
       "type": "object"
     },
-    "IngestResponse": {
+    "Item": {
       "additionalProperties": false,
-      "description": "POST /ingest  (multipart: image, source=scan|flatlay, ownership=owned|catalog, is_guest)\n\nAlways returns candidates; nothing is saved until /ingest/{photo_id}/select.\nA flat-lay returns exactly one candidate. The original image is deleted after this call.",
+      "description": "A saved closet item. GET /items/{slug}, POST /items/save, and each entry of GET /items.",
       "properties": {
-        "photo_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Photo Id",
+        "id": {
+          "pattern": "^[a-z]+_[0-9a-f]{6}$",
+          "title": "Id",
           "type": "string"
         },
-        "source": {
-          "$ref": "#/$defs/Source"
+        "category": {
+          "$ref": "#/$defs/Category"
         },
-        "candidates": {
+        "garment_type": {
+          "$ref": "#/$defs/GarmentType"
+        },
+        "cutout_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Cutout Url",
+          "type": "string"
+        },
+        "primary_color": {
+          "$ref": "#/$defs/ExtractedColor"
+        },
+        "secondary_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExtractedColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "retailer_color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retailer Color"
+        },
+        "retailer_item_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retailer Item Name"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "garment_type",
+        "cutout_url",
+        "primary_color",
+        "created_at"
+      ],
+      "title": "Item",
+      "type": "object"
+    },
+    "ItemListResponse": {
+      "additionalProperties": false,
+      "description": "GET /items?category=tops|bottoms|jackets. Stable order: created_at, newest first.",
+      "properties": {
+        "items": {
           "items": {
-            "$ref": "#/$defs/Candidate"
+            "$ref": "#/$defs/Item"
           },
-          "minItems": 1,
-          "title": "Candidates",
+          "title": "Items",
           "type": "array"
         }
       },
       "required": [
-        "photo_id",
-        "source",
-        "candidates"
+        "items"
       ],
-      "title": "IngestResponse",
+      "title": "ItemListResponse",
       "type": "object"
     },
     "Outfit": {
       "additionalProperties": false,
+      "description": "bottom + (top or dress) + optional jacket (S-O1..S-O3).",
       "properties": {
-        "id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Id",
+        "outfit_id": {
+          "pattern": "^outfit_[0-9a-f]{6}$",
+          "title": "Outfit Id",
           "type": "string"
         },
-        "user_id": {
-          "title": "User Id",
+        "strategy": {
+          "$ref": "#/$defs/Strategy"
+        },
+        "top_id": {
+          "pattern": "^(top|dress)_[0-9a-f]{6}$",
+          "title": "Top Id",
           "type": "string"
         },
-        "anchor_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Anchor Id",
+        "bottom_id": {
+          "pattern": "^bottom_[0-9a-f]{6}$",
+          "title": "Bottom Id",
           "type": "string"
         },
-        "item_ids": {
-          "items": {
-            "type": "string"
-          },
-          "maxItems": 4,
-          "minItems": 2,
-          "title": "Item Ids",
-          "type": "array"
-        },
-        "needs_purchase": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Needs Purchase",
-          "type": "array"
-        },
-        "rank": {
-          "minimum": 1,
-          "title": "Rank",
-          "type": "integer"
-        },
-        "rule_score": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Rule Score",
-          "type": "number"
-        },
-        "breakdown": {
-          "$ref": "#/$defs/ScoreBreakdown"
-        },
-        "reason": {
-          "maxLength": 140,
-          "minLength": 1,
-          "title": "Reason",
-          "type": "string"
-        },
-        "reason_source": {
-          "$ref": "#/$defs/ReasonSource"
-        },
-        "model": {
+        "jacket_id": {
           "anyOf": [
             {
+              "pattern": "^jacket_[0-9a-f]{6}$",
               "type": "string"
             },
             {
@@ -616,410 +477,117 @@
             }
           ],
           "default": null,
-          "title": "Model"
+          "title": "Jacket Id"
         },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
+        "explanation": {
+          "minLength": 1,
+          "title": "Explanation",
           "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
         }
       },
       "required": [
-        "id",
-        "user_id",
-        "anchor_id",
-        "item_ids",
-        "rank",
-        "rule_score",
-        "breakdown",
-        "reason",
-        "reason_source",
-        "created_at"
+        "outfit_id",
+        "strategy",
+        "top_id",
+        "bottom_id",
+        "explanation",
+        "score"
       ],
       "title": "Outfit",
       "type": "object"
     },
-    "Ownership": {
-      "enum": [
-        "owned",
-        "catalog"
-      ],
-      "title": "Ownership",
-      "type": "string"
-    },
-    "Pattern": {
-      "enum": [
-        "solid",
-        "stripe",
-        "plaid",
-        "floral",
-        "graphic",
-        "other"
-      ],
-      "title": "Pattern",
-      "type": "string"
-    },
-    "ReasonSource": {
-      "enum": [
-        "llm",
-        "template"
-      ],
-      "title": "ReasonSource",
-      "type": "string"
-    },
-    "RecommendRequest": {
+    "OutfitsGenerateRequest": {
       "additionalProperties": false,
-      "description": "POST /recommend  (the Make outfits button; Next outfit = offset + limit)",
+      "description": "POST /outfits/generate. The body may be {} (limit defaults to 5).",
       "properties": {
-        "anchor_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Anchor Id",
-          "type": "string"
-        },
         "limit": {
-          "default": 3,
+          "default": 5,
           "maximum": 5,
           "minimum": 1,
           "title": "Limit",
           "type": "integer"
-        },
-        "offset": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Offset",
-          "type": "integer"
-        },
-        "include_catalog": {
-          "default": true,
-          "title": "Include Catalog",
-          "type": "boolean"
         }
       },
-      "required": [
-        "anchor_id"
-      ],
-      "title": "RecommendRequest",
+      "title": "OutfitsGenerateRequest",
       "type": "object"
     },
-    "RecommendResponse": {
+    "OutfitsGenerateResponse": {
       "additionalProperties": false,
+      "description": "Up to 5 outfits, best first. Fewer (or none, for an unsatisfiable closet) is normal.",
       "properties": {
-        "anchor_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Anchor Id",
-          "type": "string"
-        },
         "outfits": {
           "items": {
             "$ref": "#/$defs/Outfit"
           },
+          "maxItems": 5,
           "title": "Outfits",
           "type": "array"
-        },
-        "total_candidates": {
-          "minimum": 0,
-          "title": "Total Candidates",
-          "type": "integer"
-        },
-        "cache_hit": {
-          "title": "Cache Hit",
+        }
+      },
+      "required": [
+        "outfits"
+      ],
+      "title": "OutfitsGenerateResponse",
+      "type": "object"
+    },
+    "RejectRequest": {
+      "additionalProperties": false,
+      "description": "POST /items/reject. Nothing persists; the rejection is logged.",
+      "properties": {
+        "temp_handle": {
+          "pattern": "^tmp_[0-9a-f]{12}$",
+          "title": "Temp Handle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "temp_handle"
+      ],
+      "title": "RejectRequest",
+      "type": "object"
+    },
+    "RejectResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "const": true,
+          "title": "Ok",
           "type": "boolean"
         }
       },
       "required": [
-        "anchor_id",
-        "outfits",
-        "total_candidates",
-        "cache_hit"
+        "ok"
       ],
-      "title": "RecommendResponse",
+      "title": "RejectResponse",
       "type": "object"
     },
-    "Rect": {
+    "RenderJob": {
       "additionalProperties": false,
+      "description": "POST /render and GET /render/{render_id}. local_url is always present and correct;\ngenerated_url is set exactly when status is done.",
       "properties": {
-        "x": {
-          "minimum": 0,
-          "title": "X",
-          "type": "integer"
-        },
-        "y": {
-          "minimum": 0,
-          "title": "Y",
-          "type": "integer"
-        },
-        "w": {
-          "exclusiveMinimum": 0,
-          "title": "W",
-          "type": "integer"
-        },
-        "h": {
-          "exclusiveMinimum": 0,
-          "title": "H",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "x",
-        "y",
-        "w",
-        "h"
-      ],
-      "title": "Rect",
-      "type": "object"
-    },
-    "Render": {
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Id",
+        "render_id": {
+          "pattern": "^render_[0-9a-f]{12}$",
+          "title": "Render Id",
           "type": "string"
         },
-        "avatar_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Avatar Id",
-          "type": "string"
+        "status": {
+          "$ref": "#/$defs/RenderStatus"
         },
-        "outfit_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Outfit Id",
-          "type": "string"
-        },
-        "image_url": {
+        "local_url": {
           "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
-          "title": "Image Url",
+          "title": "Local Url",
           "type": "string"
         },
-        "created_at": {
-          "format": "date-time",
-          "title": "Created At",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "avatar_id",
-        "outfit_id",
-        "image_url",
-        "created_at"
-      ],
-      "title": "Render",
-      "type": "object"
-    },
-    "RenderRequest": {
-      "additionalProperties": false,
-      "description": "POST /render  (dressed avatar; the same PNG is the Save look download)",
-      "properties": {
-        "avatar_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Avatar Id",
-          "type": "string"
-        },
-        "outfit_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Outfit Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "avatar_id",
-        "outfit_id"
-      ],
-      "title": "RenderRequest",
-      "type": "object"
-    },
-    "RenderResponse": {
-      "additionalProperties": false,
-      "properties": {
-        "render": {
-          "$ref": "#/$defs/Render"
-        }
-      },
-      "required": [
-        "render"
-      ],
-      "title": "RenderResponse",
-      "type": "object"
-    },
-    "ScoreBreakdown": {
-      "additionalProperties": false,
-      "description": "Each component is 0..1, higher is better.",
-      "properties": {
-        "hue": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Hue",
-          "type": "number"
-        },
-        "pattern": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Pattern",
-          "type": "number"
-        },
-        "formality": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Formality",
-          "type": "number"
-        }
-      },
-      "required": [
-        "hue",
-        "pattern",
-        "formality"
-      ],
-      "title": "ScoreBreakdown",
-      "type": "object"
-    },
-    "SegmentClass": {
-      "description": "Garment classes the clothing segmenter can return for a scan.",
-      "enum": [
-        "upper_clothes",
-        "coat",
-        "dress",
-        "pants",
-        "skirt",
-        "other"
-      ],
-      "title": "SegmentClass",
-      "type": "string"
-    },
-    "SelectRequest": {
-      "additionalProperties": false,
-      "description": "POST /ingest/{photo_id}/select",
-      "properties": {
-        "candidate_ids": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Candidate Ids",
-          "type": "array"
-        },
-        "category_overrides": {
-          "additionalProperties": {
-            "$ref": "#/$defs/Category"
-          },
-          "title": "Category Overrides",
-          "type": "object"
-        }
-      },
-      "required": [
-        "candidate_ids"
-      ],
-      "title": "SelectRequest",
-      "type": "object"
-    },
-    "SelectResponse": {
-      "additionalProperties": false,
-      "description": "Classification runs synchronously; each garment comes back ready or needs_review.",
-      "properties": {
-        "garments": {
-          "items": {
-            "$ref": "#/$defs/Garment"
-          },
-          "minItems": 1,
-          "title": "Garments",
-          "type": "array"
-        }
-      },
-      "required": [
-        "garments"
-      ],
-      "title": "SelectResponse",
-      "type": "object"
-    },
-    "Source": {
-      "enum": [
-        "scan",
-        "flatlay"
-      ],
-      "title": "Source",
-      "type": "string"
-    },
-    "SwapRequest": {
-      "additionalProperties": false,
-      "description": "POST /recommend/swap  (replace one piece, keep the rest)",
-      "properties": {
-        "outfit_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Outfit Id",
-          "type": "string"
-        },
-        "replace_item_id": {
-          "pattern": "^[0-9a-f]{24}$",
-          "title": "Replace Item Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "outfit_id",
-        "replace_item_id"
-      ],
-      "title": "SwapRequest",
-      "type": "object"
-    },
-    "SwapResponse": {
-      "additionalProperties": false,
-      "properties": {
-        "outfit": {
-          "$ref": "#/$defs/Outfit"
-        }
-      },
-      "required": [
-        "outfit"
-      ],
-      "title": "SwapResponse",
-      "type": "object"
-    },
-    "TemplateBody": {
-      "additionalProperties": false,
-      "description": "contract/template_body.json: where things go on the drawn body (pixels).",
-      "properties": {
-        "version": {
-          "title": "Version",
-          "type": "string"
-        },
-        "image": {
-          "title": "Image",
-          "type": "string"
-        },
-        "width": {
-          "exclusiveMinimum": 0,
-          "title": "Width",
-          "type": "integer"
-        },
-        "height": {
-          "exclusiveMinimum": 0,
-          "title": "Height",
-          "type": "integer"
-        },
-        "head_slot": {
-          "$ref": "#/$defs/Rect"
-        },
-        "anchors": {
-          "additionalProperties": {
-            "$ref": "#/$defs/Rect"
-          },
-          "propertyNames": {
-            "enum": [
-              "top",
-              "bottom",
-              "dress",
-              "outerwear"
-            ]
-          },
-          "title": "Anchors",
-          "type": "object"
-        },
-        "shoes_area": {
-          "$ref": "#/$defs/Rect"
-        },
-        "arms_overlay": {
+        "generated_url": {
           "anyOf": [
             {
+              "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
               "type": "string"
             },
             {
@@ -1027,36 +595,103 @@
             }
           ],
           "default": null,
-          "title": "Arms Overlay"
-        },
-        "layer_order": {
-          "items": {
-            "enum": [
-              "bottom",
-              "dress",
-              "top",
-              "outerwear",
-              "arms"
-            ],
-            "type": "string"
-          },
-          "title": "Layer Order",
-          "type": "array"
+          "title": "Generated Url"
         }
       },
       "required": [
-        "version",
-        "image",
-        "width",
-        "height",
-        "head_slot",
-        "anchors",
-        "shoes_area",
-        "layer_order"
+        "render_id",
+        "status",
+        "local_url"
       ],
-      "title": "TemplateBody",
+      "title": "RenderJob",
       "type": "object"
+    },
+    "RenderRequest": {
+      "additionalProperties": false,
+      "description": "POST /render",
+      "properties": {
+        "avatar_id": {
+          "pattern": "^avatar_[0-9a-f]{6}$",
+          "title": "Avatar Id",
+          "type": "string"
+        },
+        "top_id": {
+          "pattern": "^(top|dress)_[0-9a-f]{6}$",
+          "title": "Top Id",
+          "type": "string"
+        },
+        "bottom_id": {
+          "pattern": "^bottom_[0-9a-f]{6}$",
+          "title": "Bottom Id",
+          "type": "string"
+        },
+        "jacket_id": {
+          "anyOf": [
+            {
+              "pattern": "^jacket_[0-9a-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jacket Id"
+        }
+      },
+      "required": [
+        "avatar_id",
+        "top_id",
+        "bottom_id"
+      ],
+      "title": "RenderRequest",
+      "type": "object"
+    },
+    "RenderStatus": {
+      "enum": [
+        "pending",
+        "done",
+        "failed"
+      ],
+      "title": "RenderStatus",
+      "type": "string"
+    },
+    "SaveRequest": {
+      "additionalProperties": false,
+      "description": "POST /items/save. category/garment_type/retailer fields were captured at analyze.",
+      "properties": {
+        "temp_handle": {
+          "pattern": "^tmp_[0-9a-f]{12}$",
+          "title": "Temp Handle",
+          "type": "string"
+        },
+        "candidate_index": {
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Candidate Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "temp_handle",
+        "candidate_index"
+      ],
+      "title": "SaveRequest",
+      "type": "object"
+    },
+    "Strategy": {
+      "description": "S-S2 outfit strategies, in degradation-ladder order.",
+      "enum": [
+        "neutral_anchor",
+        "everyday_neutral_base",
+        "analogous",
+        "complementary",
+        "monochrome_highlight",
+        "sandwich"
+      ],
+      "title": "Strategy",
+      "type": "string"
     }
   },
-  "title": "Closet app contract 1.0.0"
+  "title": "Atelier contract 2.0.0"
 }

@@ -1,0 +1,9 @@
+{
+  "_multipart": {
+    "image": "<garment.jpg>",
+    "category": "tops",
+    "garment_type": "shirt",
+    "color": "Moss",
+    "item_name": "Garment-Dyed Overshirt"
+  }
+}

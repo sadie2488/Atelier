@@ -59,10 +59,7 @@ garments on others — and your automated checks will not catch it.
 
 | Command | Use it for |
 |---|---|
-| `python tools/inspect_image.py <path>` | Dimensions, orientation, dominant clusters, computed chroma. Use before guessing why a fixture misbehaves. |
-| `python tools/run_ingest.py <path>` | Full pipeline on one image without the server. Prints all three candidates. |
-| `python tools/check_cutout.py <path>` | Run every purity, completeness, and structural check on a cutout; prints the pass/fail table. |
-| `python tools/check_neutrals.py` | `is_neutral` and everyday-neutral rules across all fixture colors. |
+| `python backend/vision/scripts/<name>.py` | Your own debug and probe scripts (inspect an image, run one fixture end to end, probe Gemini). Write them as needed; they are in your scope. Keep Gemini probes rare — they cost quota. |
 | `python tools/validate_response.py items <json>` | Validate against the frozen contract. Run before declaring done. |
 | `python tools/request_dep.py` | Request a dependency from the PM. |
 | `pytest backend/tests/test_vision.py` | Your tests. Keep them green. |

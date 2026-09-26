@@ -68,10 +68,8 @@ Vercel rewrite in production. Run `check_media.py` before declaring anything don
 
 | Command | Use it for |
 |---|---|
-| `python tools/render_preview.py <avatar_id> <outfit>` | Composite to `media/_preview/` and open it. Check layering visually rather than reasoning about coordinates. |
-| `python tools/inspect_rig.py <scan>` | Landmark positions and derived shoulder/torso/hip/leg geometry, without rendering. |
+| `python backend/avatar/scripts/<name>.py` | Your own debug and probe scripts (inspect an image, run one fixture end to end, probe Gemini). Write them as needed; they are in your scope. Keep Gemini probes rare — they cost quota. |
 | `python tools/check_media.py` | Every returned media path resolves and is relative. |
-| `python tools/gen_probe.py <photo> <garment>` | One generation call; reports latency, ΔE verification result, and identity drift. Costs quota — use sparingly. |
 | `python tools/validate_response.py avatar <json>` | Validate against the frozen contract. |
 | `python tools/request_dep.py` | Request a dependency from the PM. |
 | `pytest backend/tests/test_avatar.py` | Your tests. Keep them green. |

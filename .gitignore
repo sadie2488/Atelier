@@ -1,4 +1,5 @@
 .venv/
+.venv-*/
 __pycache__/
 *.pyc
 .env
@@ -6,3 +7,4 @@ backend/*.log
 node_modules/
 .next/
 .DS_Store
+.claude/settings.local.json

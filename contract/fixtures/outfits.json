@@ -1,71 +1,47 @@
 [
   {
-    "id": "300000000000000000000001",
-    "user_id": "demo",
-    "anchor_id": "100000000000000000000002",
-    "item_ids": [
-      "100000000000000000000002",
-      "100000000000000000000006",
-      "10000000000000000000000d"
-    ],
-    "needs_purchase": [],
-    "rank": 1,
-    "rule_score": 0.86,
-    "breakdown": {
-      "hue": 0.88,
-      "pattern": 0.9,
-      "formality": 0.8
-    },
-    "reason": "Black jeans and white sneakers let the red plaid lead; the navy in the check ties it together.",
-    "reason_source": "llm",
-    "model": "gemini-flash",
-    "created_at": "2026-09-26T09:00:00Z"
+    "outfit_id": "outfit_9870c9",
+    "strategy": "neutral_anchor",
+    "top_id": "top_869a93",
+    "bottom_id": "bottom_eb4185",
+    "jacket_id": null,
+    "explanation": "A black skirt lets the brick-red shirt lead without competing with it.",
+    "score": 0.91
   },
   {
-    "id": "300000000000000000000002",
-    "user_id": "demo",
-    "anchor_id": "100000000000000000000002",
-    "item_ids": [
-      "100000000000000000000002",
-      "100000000000000000000007",
-      "10000000000000000000000e",
-      "10000000000000000000000b"
-    ],
-    "needs_purchase": [],
-    "rank": 2,
-    "rule_score": 0.79,
-    "breakdown": {
-      "hue": 0.8,
-      "pattern": 0.9,
-      "formality": 0.7
-    },
-    "reason": "Warm red against blue denim is a near-complement; olive and brown keep it earthy.",
-    "reason_source": "llm",
-    "model": "gemini-flash",
-    "created_at": "2026-09-26T09:00:00Z"
+    "outfit_id": "outfit_cf9f3f",
+    "strategy": "everyday_neutral_base",
+    "top_id": "top_0ff3b2",
+    "bottom_id": "bottom_58d301",
+    "jacket_id": null,
+    "explanation": "Stone chinos are an easy everyday base for a soft sky-blue oxford.",
+    "score": 0.86
   },
   {
-    "id": "300000000000000000000003",
-    "user_id": "demo",
-    "anchor_id": "100000000000000000000002",
-    "item_ids": [
-      "100000000000000000000002",
-      "100000000000000000000012",
-      "10000000000000000000000d"
-    ],
-    "needs_purchase": [
-      "100000000000000000000012"
-    ],
-    "rank": 3,
-    "rule_score": 0.74,
-    "breakdown": {
-      "hue": 0.82,
-      "pattern": 0.9,
-      "formality": 0.55
-    },
-    "reason": "Cream wide trousers soften the plaid; you'd need to buy them.",
-    "reason_source": "template",
-    "model": null,
-    "created_at": "2026-09-26T09:00:00Z"
+    "outfit_id": "outfit_01e3fb",
+    "strategy": "analogous",
+    "top_id": "dress_66fb4a",
+    "bottom_id": "bottom_bc47d1",
+    "jacket_id": null,
+    "explanation": "Forest green and olive sit side by side on the color wheel, so the look reads calm.",
+    "score": 0.81
+  },
+  {
+    "outfit_id": "outfit_8b6f25",
+    "strategy": "sandwich",
+    "top_id": "top_fa36c4",
+    "bottom_id": "bottom_6d035c",
+    "jacket_id": "jacket_321ef1",
+    "explanation": "Navy jacket and denim bookend the outfit; the white tee breaks it up.",
+    "score": 0.78
+  },
+  {
+    "outfit_id": "outfit_11acc0",
+    "strategy": "neutral_anchor",
+    "top_id": "top_fa36c4",
+    "bottom_id": "bottom_bc47d1",
+    "jacket_id": "jacket_de62b7",
+    "explanation": "A white tee anchors olive shorts, and the camel coat adds warmth.",
+    "score": 0.72
   }
 ]

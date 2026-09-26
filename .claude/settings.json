@@ -16,5 +16,19 @@
       "Read(./frontend/.env.local)",
       "Read(./archive/**)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/scope_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

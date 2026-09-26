@@ -1,183 +1,171 @@
 #!/usr/bin/env python3
 """Regenerate every file in contract/fixtures/ and contract/schema.json. HUMAN-OWNED.
 
-Run from the repo root:  python3 -m contract.tools.make_fixtures
-Edit the GARMENTS table below to change the fixture closet; colors are computed from hex.
+Run from the repo root:  python -m contract.tools.make_fixtures
+Edit the ITEMS table below to change the fixture closet; every color field is computed
+from hex via colors.json (nearest CIEDE2000 center), so the fixtures cannot drift.
+Deterministic: same table, same output.
 """
+import hashlib
 import json
 from pathlib import Path
 
 from contract import schemas as S
-from contract.enums import NEUTRAL_CHROMA_MAX
-from contract.tools.color import hex_to_lab, lab_to_lch
+from contract.enums import NEUTRAL_CHROMA_MAX, SLUG_PREFIX, GarmentType
+from contract.tools.color import hex_to_lab, lab_to_lch, nearest_color
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures"
 API = FIX / "api"
-TS = "2026-09-26T09:00:00Z"
-USER = "demo"
 
 
-def oid(kind: int, n: int) -> str:
-    """Deterministic 24-hex ids: 1=garment 2=avatar 3=outfit 4=render 5=photo."""
-    return f"{kind:x}" + "0" * 19 + f"{n:04x}"
+def hexid(seed: str, n: int = 6) -> str:
+    return hashlib.sha1(seed.encode()).hexdigest()[:n]
 
 
-def color(hex_, weight):
-    lab = hex_to_lab(hex_)
+def color(hex_: str) -> dict:
+    lab = tuple(round(v, 2) for v in hex_to_lab(hex_))
     L, C, h = (round(v, 2) for v in lab_to_lch(lab))
-    return {"lab": [round(v, 2) for v in lab], "lch": [L, C, h % 360],  # 359.996 must not round to 360
-            "hex": hex_, "weight": weight}
+    name, family, everyday = nearest_color(lab)
+    return {"lab": list(lab), "lch": [L, C, h % 360],  # 359.996 must not round to 360
+            "hex": hex_, "name": name, "family": family,
+            "is_neutral": C < NEUTRAL_CHROMA_MAX, "everyday_neutral": everyday}
 
 
-# n, name(subcategory), category, pattern, formality, ownership, [(hex, weight)], tags
-GARMENTS = [
-    (1,  "t-shirt",        "top",       "solid",  1, "owned",   [("#f4f2ee", 0.92)],                    ["basic"]),
-    (2,  "flannel shirt",  "top",       "plaid",  2, "owned",   [("#a8322d", 0.55), ("#1f2a44", 0.30)], ["casual", "layering"]),
-    (3,  "breton top",     "top",       "stripe", 2, "owned",   [("#f2efe8", 0.52), ("#1d2b4f", 0.44)], ["classic"]),
-    (4,  "sweater",        "top",       "solid",  3, "owned",   [("#d9a13b", 0.95)],                    ["knit", "warm"]),
-    (5,  "hoodie",         "top",       "solid",  1, "owned",   [("#8e9196", 0.94)],                    ["casual"]),
-    (6,  "jeans",          "bottom",    "solid",  2, "owned",   [("#1c1c1f", 0.96)],                    ["denim"]),
-    (7,  "jeans",          "bottom",    "solid",  2, "owned",   [("#3b5b8a", 0.90)],                    ["denim"]),
-    (8,  "chinos",         "bottom",    "solid",  3, "owned",   [("#d8c3a5", 0.95)],                    ["smart casual"]),
-    (9,  "midi skirt",     "bottom",    "floral", 3, "owned",   [("#2f4a3a", 0.60), ("#e8b4bc", 0.25)], ["flowy"]),
-    (10, "slip dress",     "dress",     "solid",  4, "owned",   [("#111111", 0.97)],                    ["evening"]),
-    (11, "overshirt",      "outerwear", "solid",  2, "owned",   [("#5b6b3a", 0.93)],                    ["utility"]),
-    (12, "denim jacket",   "outerwear", "solid",  2, "owned",   [("#6f8fb5", 0.91)],                    ["denim"]),
-    (13, "sneakers",       "shoes",     "solid",  1, "owned",   [("#f5f5f3", 0.85)],                    ["everyday"]),
-    (14, "boots",          "shoes",     "solid",  3, "owned",   [("#5a3a24", 0.92)],                    ["leather"]),
-    (15, "wool coat",      "outerwear", "solid",  4, "catalog", [("#c19a6b", 0.96)],                    ["tailored"]),
-    (16, "cargo pants",    "bottom",    "solid",  2, "catalog", [("#4b5a3c", 0.95)],                    ["utility"]),
-    (17, "knit top",       "top",       "solid",  3, "catalog", [("#e7a5b8", 0.94)],                    ["soft"]),
-    (18, "wide trousers",  "bottom",    "solid",  4, "catalog", [("#ece4d6", 0.96)],                    ["tailored"]),
-    (19, "sneakers",       "shoes",     "solid",  2, "catalog", [("#7a1f2b", 0.88)],                    ["statement"]),
+# key, category, garment_type, primary hex, secondary hex, retailer color, retailer item name
+# Listed oldest first; created_at is one hour apart.
+ITEMS = [
+    ("white-tee",     "tops",    "shirt",  "#f4f2ee", None,      "Optic White",  "Essential Crew Tee"),
+    ("red-shirt",     "tops",    "shirt",  "#b23a35", None,      "Brick Red",    "Relaxed Poplin Shirt"),
+    ("blue-oxford",   "tops",    "shirt",  "#a9c4e0", None,      "Sky Blue",     "Oxford Button-Down"),
+    ("floral-dress",  "tops",    "dress",  "#3d7a4a", "#e8b4bc", "Forest Floral", "Tiered Midi Dress"),
+    ("denim-jeans",   "bottoms", "pants",  "#3b5b8a", None,      "Mid Wash",     "Straight Leg Jean"),
+    ("beige-chinos",  "bottoms", "pants",  "#d8c3a5", None,      "Stone",        "Slim Chino"),
+    ("black-skirt",   "bottoms", "skirt",  "#1c1c1f", None,      "Black",        "A-Line Mini Skirt"),
+    ("olive-shorts",  "bottoms", "shorts", "#6b6b3a", None,      "Olive",        "Utility Short"),
+    ("navy-jacket",   "jackets", "jacket", "#1f2a44", None,      "Navy",         "Cropped Chore Jacket"),
+    ("camel-coat",    "jackets", "coat",   "#b8864f", None,      "Camel",        "Wool Blend Overcoat"),
 ]
 
-GUEST_COAT = (20, "rain jacket", "outerwear", "solid", 2, "owned", [("#e5b53a", 0.9)], ["guest"])
+
+def slug(key: str, garment_type: str) -> str:
+    return f"{SLUG_PREFIX[GarmentType(garment_type)]}_{hexid('item:' + key)}"
 
 
-def garment(row, *, source="flatlay", is_guest=False, photo=None, status="ready"):
-    n, sub, cat, pat, form, own, cols, tags = row
-    colors = [color(h, w) for h, w in cols]
+def ts(hour: int) -> str:
+    return f"2026-09-26T{hour:02d}:00:00Z"
+
+
+def item(row, n: int) -> dict:
+    key, cat, gt, prim, sec, rcolor, rname = row
+    sid = slug(key, gt)
     return {
-        "id": oid(1, n), "user_id": USER, "photo_id": photo or oid(5, n), "source": source,
-        "ownership": own, "status": status, "is_guest": is_guest,
-        "cutout_url": f"/media/cutouts/{oid(1, n)}.png",
-        "bbox": {"x": 40, "y": 60, "w": 900, "h": 940},
-        "colors": colors, "is_neutral": colors[0]["lch"][1] < NEUTRAL_CHROMA_MAX,
-        "category": cat, "subcategory": sub, "pattern": pat, "formality": form,
-        "style_tags": tags, "user_edited": False, "created_at": TS,
+        "id": sid, "category": cat, "garment_type": gt,
+        "cutout_url": f"/media/items/{sid}.png",
+        "primary_color": color(prim),
+        "secondary_color": color(sec) if sec else None,
+        "retailer_color": rcolor, "retailer_item_name": rname,
+        "attributes": {}, "created_at": ts(8 + n),
     }
 
 
-def outfit(n, anchor, items, rank, score, bd, reason, src="llm", garments_by_id=None):
-    needs = [i for i in items if garments_by_id[i]["ownership"] == "catalog"]
-    return {
-        "id": oid(3, n), "user_id": USER, "anchor_id": anchor, "item_ids": items,
-        "needs_purchase": needs, "rank": rank, "rule_score": score,
-        "breakdown": dict(zip(("hue", "pattern", "formality"), bd)),
-        "reason": reason, "reason_source": src,
-        "model": "gemini-flash" if src == "llm" else None, "created_at": TS,
-    }
-
-
-def write(path: Path, data):
+def write(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def main():
-    garments = [garment(r) for r in GARMENTS]
-    by_id = {g["id"]: g for g in garments}
-    G = lambda n: oid(1, n)  # noqa: E731
+    items = [item(r, n) for n, r in enumerate(ITEMS)]
+    items_newest_first = sorted(items, key=lambda i: i["created_at"], reverse=True)
+    I = {r[0]: slug(r[0], r[2]) for r in ITEMS}  # noqa: E741
 
-    avatar = {"id": oid(2, 1), "user_id": USER, "head_url": f"/media/heads/{oid(2, 1)}.png",
-              "head_source": "generated", "is_guest": False, "created_at": TS}
-    anchor = G(2)  # the flannel shirt
+    def outfit(n, strategy, top, bottom, jacket, score, explanation):
+        return {"outfit_id": f"outfit_{hexid(f'outfit:{n}')}", "strategy": strategy,
+                "top_id": I[top], "bottom_id": I[bottom], "jacket_id": I[jacket] if jacket else None,
+                "explanation": explanation, "score": score}
+
     outfits = [
-        outfit(1, anchor, [G(2), G(6), G(13)], 1, 0.86, (0.88, 0.9, 0.8),
-               "Black jeans and white sneakers let the red plaid lead; the navy in the check ties it together.",
-               garments_by_id=by_id),
-        outfit(2, anchor, [G(2), G(7), G(14), G(11)], 2, 0.79, (0.8, 0.9, 0.7),
-               "Warm red against blue denim is a near-complement; olive and brown keep it earthy.",
-               garments_by_id=by_id),
-        outfit(3, anchor, [G(2), G(18), G(13)], 3, 0.74, (0.82, 0.9, 0.55),
-               "Cream wide trousers soften the plaid; you'd need to buy them.",
-               src="template", garments_by_id=by_id),
+        outfit(1, "neutral_anchor", "red-shirt", "black-skirt", None, 0.91,
+               "A black skirt lets the brick-red shirt lead without competing with it."),
+        outfit(2, "everyday_neutral_base", "blue-oxford", "beige-chinos", None, 0.86,
+               "Stone chinos are an easy everyday base for a soft sky-blue oxford."),
+        outfit(3, "analogous", "floral-dress", "olive-shorts", None, 0.81,
+               "Forest green and olive sit side by side on the color wheel, so the look reads calm."),
+        outfit(4, "sandwich", "white-tee", "denim-jeans", "navy-jacket", 0.78,
+               "Navy jacket and denim bookend the outfit; the white tee breaks it up."),
+        outfit(5, "neutral_anchor", "white-tee", "olive-shorts", "camel-coat", 0.72,
+               "A white tee anchors olive shorts, and the camel coat adds warmth."),
     ]
-    render = {"id": oid(4, 1), "avatar_id": avatar["id"], "outfit_id": outfits[0]["id"],
-              "image_url": f"/media/renders/{oid(4, 1)}.png", "created_at": TS}
-    template = {
-        "version": "placeholder-1", "image": "placeholder", "width": 600, "height": 1200,
-        "head_slot": {"x": 225, "y": 40, "w": 150, "h": 170},
-        "anchors": {
-            "top":       {"x": 150, "y": 220, "w": 300, "h": 330},
-            "outerwear": {"x": 120, "y": 210, "w": 360, "h": 420},
-            "bottom":    {"x": 175, "y": 520, "w": 250, "h": 480},
-            "dress":     {"x": 150, "y": 220, "w": 300, "h": 620},
-        },
-        "shoes_area": {"x": 180, "y": 1040, "w": 240, "h": 120},
-        "arms_overlay": None,
-        "layer_order": ["bottom", "dress", "top", "outerwear", "arms"],
-    }
 
-    guest = garment(GUEST_COAT, source="scan", is_guest=True, photo=oid(5, 100))
-    guest["bbox"] = {"x": 210, "y": 330, "w": 560, "h": 610}
-    candidates = [
-        {"candidate_id": "c1", "segment_class": "coat",
-         "cutout_url": f"/media/candidates/{oid(5, 100)}_c1.png", "bbox": guest["bbox"]},
-        {"candidate_id": "c2", "segment_class": "upper_clothes",
-         "cutout_url": f"/media/candidates/{oid(5, 100)}_c2.png", "bbox": {"x": 380, "y": 360, "w": 220, "h": 420}},
-    ]
-    patched = dict(garments[4], category="outerwear", user_edited=True)
-    swapped = dict(outfits[0], id=oid(3, 4), item_ids=[G(2), G(8), G(13)], rank=1, rule_score=0.81,
-                   breakdown={"hue": 0.82, "pattern": 0.9, "formality": 0.7},
-                   reason="Beige chinos warm up the red plaid and keep the look smart casual.")
+    avatar_id = f"avatar_{hexid('avatar:1')}"
+    avatar = {"avatar_id": avatar_id,
+              "wireframe_url": f"/media/avatars/{avatar_id}_wireframe.png",
+              "avatar_url": f"/media/avatars/{avatar_id}.png",
+              "created_at": ts(7)}
+    avatar_scan = {k: v for k, v in avatar.items() if k != "created_at"}
+
+    top, bottom = outfits[0]["top_id"], outfits[0]["bottom_id"]
+    render_id = f"render_{hexid(f'{avatar_id}|{top}|{bottom}|', 12)}"
+    render_pending = {"render_id": render_id, "status": "pending",
+                      "local_url": f"/media/renders/{render_id}_local.png", "generated_url": None}
+    render_done = dict(render_pending, status="done",
+                       generated_url=f"/media/renders/{render_id}_generated.png")
+
+    # analyze -> save: a new green overshirt; three variants of slightly different color
+    handle = f"tmp_{hexid('handle:1', 12)}"
+    variant_hex = ["#4f6b45", "#4d6a44", "#526d48"]
+    candidates = [{"index": k, "variant": v, "cutout_url": f"/media/tmp/{handle}_{k}.png",
+                   "primary_color": color(variant_hex[k]), "secondary_color": None}
+                  for k, v in enumerate(["tight", "balanced", "generous"])]
+    saved_id = slug("green-overshirt", "shirt")
+    saved = {"id": saved_id, "category": "tops", "garment_type": "shirt",
+             "cutout_url": f"/media/items/{saved_id}.png",
+             "primary_color": candidates[1]["primary_color"], "secondary_color": None,
+             "retailer_color": "Moss", "retailer_item_name": "Garment-Dyed Overshirt",
+             "attributes": {}, "created_at": ts(20)}
 
     api = {
-        "get_health":            (None, {"status": "ok", "contract_version": S.CONTRACT_VERSION}),
-        "post_avatar":           ({"_multipart": {"image": "<face.jpg>", "is_guest": "true"}}, {"avatar": avatar}),
-        "post_ingest":           ({"_multipart": {"image": "<waist-up.jpg>", "source": "scan",
-                                                  "ownership": "owned", "is_guest": "true"}},
-                                  {"photo_id": oid(5, 100), "source": "scan", "candidates": candidates}),
-        "post_ingest_select":    ({"candidate_ids": ["c1"]}, {"garments": [guest]}),
-        "get_garments":          (None, {"garments": garments + [guest]}),
-        "patch_garments":        ({"category": "outerwear"}, patched),
-        "delete_garments":       (None, None),
-        "post_recommend":        ({"anchor_id": anchor, "limit": 3, "offset": 0, "include_catalog": True},
-                                  {"anchor_id": anchor, "outfits": outfits, "total_candidates": 41, "cache_hit": True}),
-        "post_recommend_swap":   ({"outfit_id": outfits[0]["id"], "replace_item_id": G(6)}, {"outfit": swapped}),
-        "post_render":           ({"avatar_id": avatar["id"], "outfit_id": outfits[0]["id"]}, {"render": render}),
-        "post_demo_reset":       (None, {"deleted": {"avatars": 1, "garments": 1, "outfits": 3, "renders": 1}}),
+        "get_health":             (None, {"status": "ok", "db": "ok"}),
+        "post_items_analyze":     ({"_multipart": {"image": "<garment.jpg>", "category": "tops",
+                                                   "garment_type": "shirt", "color": "Moss",
+                                                   "item_name": "Garment-Dyed Overshirt"}},
+                                   {"temp_handle": handle, "candidates": candidates}),
+        "post_items_save":        ({"temp_handle": handle, "candidate_index": 1}, saved),
+        "post_items_reject":      ({"temp_handle": handle}, {"ok": True}),
+        "get_items":              (None, {"items": items_newest_first}),
+        "get_items_detail":       (None, items[3]),
+        "post_outfits_generate":  ({}, {"outfits": outfits}),
+        "post_avatar_scan":       ({"_multipart": {"image": "<full-body.jpg>"}}, avatar_scan),
+        "get_avatar_detail":      (None, avatar),
+        "post_render":            ({"avatar_id": avatar_id, "top_id": top, "bottom_id": bottom,
+                                    "jacket_id": None}, render_pending),
+        "get_render_detail":      (None, render_done),
     }
     errors = [
-        {"error": {"code": "no_face_detected", "message": "No face found in the capture. Center your face in the outline."}},
-        {"error": {"code": "no_garments_found", "message": "No garments detected. Step back so your top is in frame."}},
-        {"error": {"code": "not_found", "message": "Garment 100000000000000000000999 does not exist."}},
+        {"error": {"code": "pose_rejected", "message": "Move your arms slightly away from your body."}},
+        {"error": {"code": "no_person_detected", "message": "No person found in the photo. Step back so your whole body is in the outline."}},
+        {"error": {"code": "invalid_request", "message": "garment_type 'pants' is not valid for category 'tops' (allowed: dress, shirt)."}},
+        {"error": {"code": "handle_expired", "message": f"Temp handle {handle} has expired. Please rescan the item."}},
+        {"error": {"code": "not_found", "message": "Item top_000000 does not exist."}},
     ]
 
-    write(FIX / "garments.json", garments)
-    write(FIX / "avatar.json", avatar)
+    for old in API.glob("*.json"):
+        old.unlink()
+    write(FIX / "items.json", items)
     write(FIX / "outfits.json", outfits)
-    write(FIX / "render.json", render)
-    write(ROOT / "template_body.json", template)
+    write(FIX / "avatar.json", avatar)
+    write(FIX / "render.json", [render_pending, render_done])
     for name, (req, resp) in api.items():
         if req is not None:
             write(API / f"{name}.request.json", req)
-        if resp is not None:
-            write(API / f"{name}.response.json", resp)
+        write(API / f"{name}.response.json", resp)
     write(API / "errors.json", errors)
 
     from pydantic.json_schema import models_json_schema
-    models = [S.Garment, S.Avatar, S.Outfit, S.Render, S.TemplateBody, S.ErrorResponse,
-              S.HealthResponse, S.AvatarCreateResponse, S.IngestResponse, S.SelectRequest,
-              S.SelectResponse, S.GarmentListResponse, S.GarmentPatch, S.RecommendRequest,
-              S.RecommendResponse, S.SwapRequest, S.SwapResponse, S.RenderRequest,
-              S.RenderResponse, S.DemoResetResponse]
-    _, schema = models_json_schema([(m, "serialization") for m in models],
-                                   title=f"Closet app contract {S.CONTRACT_VERSION}")
+    _, schema = models_json_schema([(m, "serialization") for m in S.API_MODELS],
+                                   title=f"Atelier contract {S.CONTRACT_VERSION}")
     write(ROOT / "schema.json", schema)
-    print(f"wrote {len(garments)} garments, 3 outfits, {len(api)} endpoint examples, template_body.json, schema.json")
+    print(f"wrote {len(items)} items, {len(outfits)} outfits, {len(api)} endpoint examples, schema.json")
 
 
 if __name__ == "__main__":

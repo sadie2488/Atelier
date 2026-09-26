@@ -1,3 +1,5 @@
+> **Superseded (2026-09-26):** this file belongs to the earlier two-lane plan. The project now runs Plan 2 (PM + vision/styling/avatar subagents): see `CLAUDE.md` and `PM_TASKS.md`.
+
 # TASKS.md — work list for two people, two agents
 
 Each person works down their lane's list **in order** with their Claude Code agent (`/task <ID>`). Tasks marked ⇄ depend on the other lane: check that the dependency is merged into `main` and pull before starting.

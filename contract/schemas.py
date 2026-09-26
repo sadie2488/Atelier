@@ -1,31 +1,37 @@
-"""Closet app contract: data models and API shapes (Pydantic v2). HUMAN-OWNED (lane A).
+"""Atelier contract v2: data models and API shapes (Pydantic v2). HUMAN-OWNED.
 
-These models are what the API sends and receives. Database-only fields (for example
-the raw Gemini response) are not part of the contract; each module may store extra
-internal fields as long as the API output validates against these models.
+These models are what the API sends and receives. All paths below are relative to the
+`/api` prefix. Database-only fields are not part of the contract; modules may store extra
+internal fields as long as API output validates against these models.
 
-IDs are 24-character lowercase hex strings (MongoDB ObjectIds rendered as text).
-Image fields are URLs relative to the backend, e.g. "/media/cutouts/<id>.png".
+Media fields are relative URLs, e.g. "/media/items/top_a3f9c2.png", never absolute.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .enums import (
-    FORMALITY_MAX, FORMALITY_MIN, MAX_COLORS, MIN_COLORS, NEUTRAL_CHROMA_MAX,
-    OUTFIT_MAX_ITEMS, OUTFIT_MIN_ITEMS, REASON_MAX_CHARS, RECOMMEND_MAX_LIMIT,
-    Category, ErrorCode, GarmentStatus, HeadSource, Ownership, Pattern, ReasonSource,
-    SegmentClass, Source,
+    CANDIDATE_COUNT, NEUTRAL_CHROMA_MAX, OUTFITS_MAX, OUTFITS_MAX_PER_STRATEGY,
+    OUTFITS_MAX_SHARING_GARMENT, SECONDARY_MIN_DELTA_E, SLUG_PREFIX, UNMAPPED, VALID_PAIRS,
+    CandidateVariant, Category, ErrorCode, GarmentType, RenderStatus, Strategy,
 )
+from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "2.0.0"
 
-ObjectId = str  # documented alias; validated by ID_PATTERN
-ID_PATTERN = r"^[0-9a-f]{24}$"
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
+SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
+TOP_SLOT_PATTERN = r"^(top|dress)_[0-9a-f]{6}$"          # a tops-category item
+BOTTOM_SLOT_PATTERN = r"^bottom_[0-9a-f]{6}$"
+JACKET_SLOT_PATTERN = r"^jacket_[0-9a-f]{6}$"
+TEMP_HANDLE_PATTERN = r"^tmp_[0-9a-f]{12}$"
+AVATAR_ID_PATTERN = r"^avatar_[0-9a-f]{6}$"
+OUTFIT_ID_PATTERN = r"^outfit_[0-9a-f]{6}$"
+RENDER_ID_PATTERN = r"^render_[0-9a-f]{12}$"             # deterministic cache key of the combination
 
 
 class Strict(BaseModel):
@@ -33,21 +39,24 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=False)
 
 
-# ---------------------------------------------------------------- geometry & color
-
-class Rect(Strict):
-    x: int = Field(ge=0)
-    y: int = Field(ge=0)
-    w: int = Field(gt=0)
-    h: int = Field(gt=0)
+def _check_pair(category: Category, garment_type: GarmentType) -> None:
+    if garment_type not in VALID_PAIRS[category]:
+        allowed = ", ".join(sorted(g.value for g in VALID_PAIRS[category]))
+        raise ValueError(f"garment_type {garment_type.value!r} is not valid for category "
+                         f"{category.value!r} (allowed: {allowed})")
 
 
-class Color(Strict):
-    """One color cluster of a garment, computed on opaque cutout pixels only."""
+# ---------------------------------------------------------------- color
+
+class ExtractedColor(Strict):
+    """One extracted color (V-C1..V-C5). Numeric values are the truth; names are a lookup."""
     lab: tuple[float, float, float]      # CIE L*a*b* (D65): L 0..100, a/b about -128..127
-    lch: tuple[float, float, float]      # L, chroma >= 0, hue degrees 0..360
+    lch: tuple[float, float, float]      # L, chroma >= 0, hue degrees [0, 360)
     hex: str = Field(pattern=r"^#[0-9a-f]{6}$")
-    weight: float = Field(gt=0, le=1)    # share of garment pixels
+    name: str                            # colors.json name via nearest CIEDE2000 center, or "unmapped"
+    family: str                          # colors.json family of `name`, or "unmapped"
+    is_neutral: bool                     # chroma < NEUTRAL_CHROMA_MAX; never from the name
+    everyday_neutral: bool               # colors.json flag of `name`; false when unmapped
 
     @field_validator("lab")
     @classmethod
@@ -65,122 +74,226 @@ class Color(Strict):
             raise ValueError("lch out of range")
         return v
 
+    @model_validator(mode="after")
+    def _consistent(self):
+        if self.is_neutral != (self.lch[1] < NEUTRAL_CHROMA_MAX):
+            raise ValueError(f"is_neutral must equal (chroma < {NEUTRAL_CHROMA_MAX})")
+        _, table = color_table()
+        if self.name == UNMAPPED:
+            if self.family != UNMAPPED or self.everyday_neutral:
+                raise ValueError("an unmapped color has family 'unmapped' and everyday_neutral false")
+        elif self.name not in table:
+            raise ValueError(f"name {self.name!r} is not in colors.json (or 'unmapped')")
+        else:
+            entry = table[self.name]
+            if self.family != entry["family"] or self.everyday_neutral != bool(entry["everyday_neutral"]):
+                raise ValueError(f"family/everyday_neutral must match colors.json for {self.name!r}")
+        return self
 
-# ---------------------------------------------------------------- stored entities
 
-class Garment(Strict):
-    id: ObjectId = Field(pattern=ID_PATTERN)
-    user_id: str
-    photo_id: Optional[ObjectId] = Field(default=None, pattern=ID_PATTERN)
-    source: Source
-    ownership: Ownership
-    status: GarmentStatus
-    is_guest: bool = False
+def _check_secondary(primary: ExtractedColor, secondary: Optional[ExtractedColor]) -> None:
+    if secondary is not None and delta_e2000(primary.lab, secondary.lab) < SECONDARY_MIN_DELTA_E:
+        raise ValueError(f"secondary_color must be >= dE2000 {SECONDARY_MIN_DELTA_E} from primary_color")
+
+
+# ---------------------------------------------------------------- items & ingest
+
+class Item(Strict):
+    """A saved closet item. GET /items/{slug}, POST /items/save, and each entry of GET /items."""
+    id: str = Field(pattern=SLUG_PATTERN)
+    category: Category
+    garment_type: GarmentType
     cutout_url: str = Field(pattern=MEDIA_PATTERN)
-    bbox: Rect                                   # in the preprocessed source image
-    colors: list[Color] = Field(min_length=MIN_COLORS, max_length=MAX_COLORS)
-    is_neutral: bool
-    category: Optional[Category] = None          # required when status == ready
-    subcategory: Optional[str] = Field(default=None, max_length=40)
-    pattern: Optional[Pattern] = None            # required when status == ready
-    formality: Optional[int] = Field(default=None, ge=FORMALITY_MIN, le=FORMALITY_MAX)
-    style_tags: list[str] = Field(default_factory=list, max_length=8)
-    user_edited: bool = False
+    primary_color: ExtractedColor
+    secondary_color: Optional[ExtractedColor] = None
+    retailer_color: Optional[str] = None           # the retailer's original color string
+    retailer_item_name: Optional[str] = None
+    attributes: dict[str, Any] = Field(default_factory=dict)   # A3: enrichment; empty at launch
     created_at: datetime
 
     @model_validator(mode="after")
     def _consistent(self):
-        weights = [c.weight for c in self.colors]
-        if weights != sorted(weights, reverse=True):
-            raise ValueError("colors must be sorted by weight, largest first")
-        if sum(weights) > 1.0001:
-            raise ValueError("color weights sum to more than 1")
-        if self.is_neutral != (self.colors[0].lch[1] < NEUTRAL_CHROMA_MAX):
-            raise ValueError(f"is_neutral must equal (dominant chroma < {NEUTRAL_CHROMA_MAX})")
-        if self.status == GarmentStatus.ready and None in (self.category, self.pattern, self.formality):
-            raise ValueError("a ready garment needs category, pattern, and formality")
-        if self.ownership == Ownership.catalog and (self.is_guest or self.source != Source.flatlay):
-            raise ValueError("catalog items are flat-lay and never guest items")
+        _check_pair(self.category, self.garment_type)
+        prefix = SLUG_PREFIX[self.garment_type]
+        if not self.id.startswith(prefix + "_"):
+            raise ValueError(f"id for garment_type {self.garment_type.value!r} must start with {prefix + '_'!r}")
+        _check_secondary(self.primary_color, self.secondary_color)
         return self
 
 
-class Avatar(Strict):
-    id: ObjectId = Field(pattern=ID_PATTERN)
-    user_id: str
-    head_url: str = Field(pattern=MEDIA_PATTERN)
-    head_source: HeadSource
-    is_guest: bool = False
-    created_at: datetime
+class AnalyzeForm(Strict):
+    """Form fields of POST /items/analyze (multipart), besides the `image` file part.
+
+    Not a JSON body; published so the backend can validate the form and the frontend can
+    type it. An invalid category/garment_type pair is a 400 invalid_request.
+    """
+    category: Category
+    garment_type: GarmentType
+    color: Optional[str] = None          # retailer color string -> Item.retailer_color
+    item_name: Optional[str] = None      # retailer item name   -> Item.retailer_item_name
+
+    @model_validator(mode="after")
+    def _pair(self):
+        _check_pair(self.category, self.garment_type)
+        return self
 
 
-class ScoreBreakdown(Strict):
-    """Each component is 0..1, higher is better."""
-    hue: float = Field(ge=0, le=1)
-    pattern: float = Field(ge=0, le=1)
-    formality: float = Field(ge=0, le=1)
+class Candidate(Strict):
+    index: int = Field(ge=0, le=CANDIDATE_COUNT - 1)
+    variant: CandidateVariant
+    cutout_url: str = Field(pattern=MEDIA_PATTERN)
+    primary_color: ExtractedColor
+    secondary_color: Optional[ExtractedColor] = None
 
+    @model_validator(mode="after")
+    def _secondary(self):
+        _check_secondary(self.primary_color, self.secondary_color)
+        return self
+
+
+_VARIANT_ORDER = [CandidateVariant.tight, CandidateVariant.balanced, CandidateVariant.generous]
+
+
+class AnalyzeResponse(Strict):
+    """POST /items/analyze. Persists nothing; exactly three candidates, index 0..2 in order."""
+    temp_handle: str = Field(pattern=TEMP_HANDLE_PATTERN)
+    candidates: list[Candidate] = Field(min_length=CANDIDATE_COUNT, max_length=CANDIDATE_COUNT)
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        if [c.index for c in self.candidates] != list(range(CANDIDATE_COUNT)):
+            raise ValueError("candidates must have index 0, 1, 2 in order")
+        if [c.variant for c in self.candidates] != _VARIANT_ORDER:
+            raise ValueError("candidate variants must be tight, balanced, generous in order")
+        return self
+
+
+class SaveRequest(Strict):
+    """POST /items/save. category/garment_type/retailer fields were captured at analyze."""
+    temp_handle: str = Field(pattern=TEMP_HANDLE_PATTERN)
+    candidate_index: int = Field(ge=0, le=CANDIDATE_COUNT - 1)
+
+
+SaveResponse = Item
+
+
+class RejectRequest(Strict):
+    """POST /items/reject. Nothing persists; the rejection is logged."""
+    temp_handle: str = Field(pattern=TEMP_HANDLE_PATTERN)
+
+
+class RejectResponse(Strict):
+    ok: Literal[True]
+
+
+class ItemListResponse(Strict):
+    """GET /items?category=tops|bottoms|jackets. Stable order: created_at, newest first."""
+    items: list[Item]
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        times = [i.created_at for i in self.items]
+        if times != sorted(times, reverse=True):
+            raise ValueError("items must be ordered by created_at, newest first")
+        if len({i.id for i in self.items}) != len(self.items):
+            raise ValueError("item ids must be unique")
+        return self
+
+
+# ---------------------------------------------------------------- outfits
 
 class Outfit(Strict):
-    id: ObjectId = Field(pattern=ID_PATTERN)
-    user_id: str
-    anchor_id: ObjectId = Field(pattern=ID_PATTERN)
-    item_ids: list[ObjectId] = Field(min_length=OUTFIT_MIN_ITEMS, max_length=OUTFIT_MAX_ITEMS)
-    needs_purchase: list[ObjectId] = Field(default_factory=list)   # catalog items in this outfit
-    rank: int = Field(ge=1)                                        # 1 = best
-    rule_score: float = Field(ge=0, le=1)
-    breakdown: ScoreBreakdown
-    reason: str = Field(min_length=1, max_length=REASON_MAX_CHARS)
-    reason_source: ReasonSource
-    model: Optional[str] = None                                    # e.g. the Gemini model id; None for template
-    created_at: datetime
+    """bottom + (top or dress) + optional jacket (S-O1..S-O3)."""
+    outfit_id: str = Field(pattern=OUTFIT_ID_PATTERN)   # stable within a response
+    strategy: Strategy
+    top_id: str = Field(pattern=TOP_SLOT_PATTERN)       # a tops-category item (shirt or dress)
+    bottom_id: str = Field(pattern=BOTTOM_SLOT_PATTERN)
+    jacket_id: Optional[str] = Field(default=None, pattern=JACKET_SLOT_PATTERN)
+    explanation: str = Field(min_length=1)              # may be the per-strategy static fallback
+    score: float = Field(ge=0, le=1)                    # higher is better
 
     @model_validator(mode="after")
-    def _consistent(self):
-        if self.anchor_id not in self.item_ids:
-            raise ValueError("anchor_id must be one of item_ids")
-        if len(set(self.item_ids)) != len(self.item_ids):
-            raise ValueError("item_ids must be unique")
-        if not set(self.needs_purchase) <= set(self.item_ids):
-            raise ValueError("needs_purchase must be a subset of item_ids")
-        if (self.reason_source == ReasonSource.template) != (self.model is None):
-            raise ValueError("model is set exactly when reason_source is llm")
+    def _sandwich(self):
+        if self.strategy == Strategy.sandwich and self.jacket_id is None:
+            raise ValueError("a sandwich outfit requires a jacket_id")
         return self
 
 
-class Render(Strict):
-    id: ObjectId = Field(pattern=ID_PATTERN)
-    avatar_id: ObjectId = Field(pattern=ID_PATTERN)
-    outfit_id: ObjectId = Field(pattern=ID_PATTERN)
-    image_url: str = Field(pattern=MEDIA_PATTERN)
-    created_at: datetime
+class OutfitsGenerateRequest(Strict):
+    """POST /outfits/generate. The body may be {} (limit defaults to 5)."""
+    limit: int = Field(default=OUTFITS_MAX, ge=1, le=OUTFITS_MAX)
 
 
-class TemplateBody(Strict):
-    """contract/template_body.json: where things go on the drawn body (pixels)."""
-    version: str
-    image: str                          # "placeholder" until the team's drawing exists
-    width: int = Field(gt=0)
-    height: int = Field(gt=0)
-    head_slot: Rect
-    anchors: dict[Literal["top", "bottom", "dress", "outerwear"], Rect]
-    shoes_area: Rect
-    arms_overlay: Optional[str] = None  # PNG drawn over garments; None for the placeholder
-    layer_order: list[Literal["bottom", "dress", "top", "outerwear", "arms"]]
+class OutfitsGenerateResponse(Strict):
+    """Up to 5 outfits, best first. Fewer (or none, for an unsatisfiable closet) is normal."""
+    outfits: list[Outfit] = Field(max_length=OUTFITS_MAX)
 
     @model_validator(mode="after")
-    def _inside(self):
-        rects = {"head_slot": self.head_slot, "shoes_area": self.shoes_area, **self.anchors}
-        for name, r in rects.items():
-            if r.x + r.w > self.width or r.y + r.h > self.height:
-                raise ValueError(f"{name} falls outside the {self.width}x{self.height} canvas")
+    def _selection(self):
+        o = self.outfits
+        if len({x.outfit_id for x in o}) != len(o):
+            raise ValueError("outfit_id must be unique within a response")
+        if len({(x.top_id, x.bottom_id, x.jacket_id) for x in o}) != len(o):
+            raise ValueError("outfits must be distinct combinations")
+        scores = [x.score for x in o]
+        if scores != sorted(scores, reverse=True):
+            raise ValueError("outfits must be ordered by score, best first")
+        per_strategy = Counter(x.strategy for x in o)
+        if per_strategy and max(per_strategy.values()) > OUTFITS_MAX_PER_STRATEGY:
+            raise ValueError(f"at most {OUTFITS_MAX_PER_STRATEGY} outfits per strategy")
+        per_garment = Counter(g for x in o for g in (x.top_id, x.bottom_id))  # jackets exempt
+        if per_garment and max(per_garment.values()) > OUTFITS_MAX_SHARING_GARMENT:
+            raise ValueError(f"at most {OUTFITS_MAX_SHARING_GARMENT} outfits may share a top or bottom")
         return self
 
 
-# ---------------------------------------------------------------- API: requests & responses
+# ---------------------------------------------------------------- avatar & render
+
+class AvatarScanResponse(Strict):
+    """POST /avatar/scan (multipart: image). A pose failure is 422 pose_rejected with an actionable message."""
+    avatar_id: str = Field(pattern=AVATAR_ID_PATTERN)
+    wireframe_url: str = Field(pattern=MEDIA_PATTERN)
+    avatar_url: str = Field(pattern=MEDIA_PATTERN)
+
+
+class Avatar(AvatarScanResponse):
+    """GET /avatar/{avatar_id}"""
+    created_at: datetime
+
+
+class RenderRequest(Strict):
+    """POST /render"""
+    avatar_id: str = Field(pattern=AVATAR_ID_PATTERN)
+    top_id: str = Field(pattern=TOP_SLOT_PATTERN)
+    bottom_id: str = Field(pattern=BOTTOM_SLOT_PATTERN)
+    jacket_id: Optional[str] = Field(default=None, pattern=JACKET_SLOT_PATTERN)
+
+
+class RenderJob(Strict):
+    """POST /render and GET /render/{render_id}. local_url is always present and correct;
+    generated_url is set exactly when status is done."""
+    render_id: str = Field(pattern=RENDER_ID_PATTERN)
+    status: RenderStatus
+    local_url: str = Field(pattern=MEDIA_PATTERN)
+    generated_url: Optional[str] = Field(default=None, pattern=MEDIA_PATTERN)
+
+    @model_validator(mode="after")
+    def _generated(self):
+        if (self.status == RenderStatus.done) != (self.generated_url is not None):
+            raise ValueError("generated_url is set exactly when status is done")
+        return self
+
+
+# ---------------------------------------------------------------- misc
+
+class HealthResponse(Strict):
+    status: Literal["ok"]
+    db: Literal["ok"]
+
 
 class ErrorBody(Strict):
     code: ErrorCode
-    message: str
+    message: str = Field(min_length=1)
 
 
 class ErrorResponse(Strict):
@@ -188,149 +301,41 @@ class ErrorResponse(Strict):
     error: ErrorBody
 
 
-class HealthResponse(Strict):
-    status: Literal["ok"]
-    contract_version: str
-
-
-class AvatarCreateResponse(Strict):
-    """POST /avatar  (multipart: image=<face capture>, is_guest=<bool>)"""
-    avatar: Avatar
-
-
-class Candidate(Strict):
-    """One detected garment region, shown to the user to tap before saving."""
-    candidate_id: str = Field(pattern=r"^c[0-9]+$")
-    segment_class: SegmentClass
-    cutout_url: str = Field(pattern=MEDIA_PATTERN)
-    bbox: Rect
-
-
-class IngestResponse(Strict):
-    """POST /ingest  (multipart: image, source=scan|flatlay, ownership=owned|catalog, is_guest)
-
-    Always returns candidates; nothing is saved until /ingest/{photo_id}/select.
-    A flat-lay returns exactly one candidate. The original image is deleted after this call.
-    """
-    photo_id: ObjectId = Field(pattern=ID_PATTERN)
-    source: Source
-    candidates: list[Candidate] = Field(min_length=1)
-
-
-class SelectRequest(Strict):
-    """POST /ingest/{photo_id}/select"""
-    candidate_ids: list[str] = Field(min_length=1)
-    category_overrides: dict[str, Category] = Field(default_factory=dict)  # candidate_id -> category
-
-    @model_validator(mode="after")
-    def _overrides_known(self):
-        if not set(self.category_overrides) <= set(self.candidate_ids):
-            raise ValueError("category_overrides keys must be selected candidate_ids")
-        return self
-
-
-class SelectResponse(Strict):
-    """Classification runs synchronously; each garment comes back ready or needs_review."""
-    garments: list[Garment] = Field(min_length=1)
-
-
-class GarmentListResponse(Strict):
-    """GET /garments?ownership=owned|catalog&include_guest=true|false"""
-    garments: list[Garment]
-
-
-class GarmentPatch(Strict):
-    """PATCH /garments/{id}  (only the fields being changed; sets user_edited)"""
-    category: Optional[Category] = None
-    subcategory: Optional[str] = Field(default=None, max_length=40)
-    pattern: Optional[Pattern] = None
-    formality: Optional[int] = Field(default=None, ge=FORMALITY_MIN, le=FORMALITY_MAX)
-    colors: Optional[list[Color]] = Field(default=None, min_length=MIN_COLORS, max_length=MAX_COLORS)
-
-    @model_validator(mode="after")
-    def _not_empty(self):
-        if all(v is None for v in self.model_dump().values()):
-            raise ValueError("patch must change at least one field")
-        return self
-
-
-class RecommendRequest(Strict):
-    """POST /recommend  (the Make outfits button; Next outfit = offset + limit)"""
-    anchor_id: ObjectId = Field(pattern=ID_PATTERN)
-    limit: int = Field(default=3, ge=1, le=RECOMMEND_MAX_LIMIT)
-    offset: int = Field(default=0, ge=0)
-    include_catalog: bool = True
-
-
-class RecommendResponse(Strict):
-    anchor_id: ObjectId = Field(pattern=ID_PATTERN)
-    outfits: list[Outfit]                # ordered by rank; may be empty only if total_candidates == 0
-    total_candidates: int = Field(ge=0)
-    cache_hit: bool
-
-    @model_validator(mode="after")
-    def _ordered(self):
-        ranks = [o.rank for o in self.outfits]
-        if ranks != sorted(ranks):
-            raise ValueError("outfits must be ordered by rank")
-        if any(o.anchor_id != self.anchor_id for o in self.outfits):
-            raise ValueError("every outfit must use the requested anchor")
-        return self
-
-
-class SwapRequest(Strict):
-    """POST /recommend/swap  (replace one piece, keep the rest)"""
-    outfit_id: ObjectId = Field(pattern=ID_PATTERN)
-    replace_item_id: ObjectId = Field(pattern=ID_PATTERN)
-
-
-class SwapResponse(Strict):
-    outfit: Outfit
-
-
-class RenderRequest(Strict):
-    """POST /render  (dressed avatar; the same PNG is the Save look download)"""
-    avatar_id: ObjectId = Field(pattern=ID_PATTERN)
-    outfit_id: ObjectId = Field(pattern=ID_PATTERN)
-
-
-class RenderResponse(Strict):
-    render: Render
-
-
-class DeletedCounts(Strict):
-    avatars: int = Field(ge=0)
-    garments: int = Field(ge=0)
-    outfits: int = Field(ge=0)
-    renders: int = Field(ge=0)
-
-
-class DemoResetResponse(Strict):
-    """POST /demo/reset  (removes guest avatars and garments and everything derived from them)"""
-    deleted: DeletedCounts
-
-
 # ---------------------------------------------------------------- endpoint registry
-# (method, path, request model or multipart/None, success response model or None for 204)
-# The S1 scaffold serves every entry from contract/fixtures/api/; check_contract.py
-# verifies each has example fixtures.
+# (method, path under /api, request model | "multipart" | None, success response model)
+# check_contract.py verifies each has example fixtures in contract/fixtures/api/.
 
 ENDPOINTS = [
-    ("GET",    "/health",                        None,            HealthResponse),
-    ("POST",   "/avatar",                        "multipart",     AvatarCreateResponse),
-    ("POST",   "/ingest",                        "multipart",     IngestResponse),
-    ("POST",   "/ingest/{photo_id}/select",      SelectRequest,   SelectResponse),
-    ("GET",    "/garments",                      None,            GarmentListResponse),
-    ("PATCH",  "/garments/{garment_id}",         GarmentPatch,    Garment),
-    ("DELETE", "/garments/{garment_id}",         None,            None),
-    ("POST",   "/recommend",                     RecommendRequest, RecommendResponse),
-    ("POST",   "/recommend/swap",                SwapRequest,     SwapResponse),
-    ("POST",   "/render",                        RenderRequest,   RenderResponse),
-    ("POST",   "/demo/reset",                    None,            DemoResetResponse),
+    ("GET",  "/health",             None,                   HealthResponse),
+    ("POST", "/items/analyze",      "multipart",            AnalyzeResponse),
+    ("POST", "/items/save",         SaveRequest,            SaveResponse),
+    ("POST", "/items/reject",       RejectRequest,          RejectResponse),
+    ("GET",  "/items",              None,                   ItemListResponse),
+    ("GET",  "/items/{slug}",       None,                   Item),
+    ("POST", "/outfits/generate",   OutfitsGenerateRequest, OutfitsGenerateResponse),
+    ("POST", "/avatar/scan",        "multipart",            AvatarScanResponse),
+    ("GET",  "/avatar/{avatar_id}", None,                   Avatar),
+    ("POST", "/render",             RenderRequest,          RenderJob),
+    ("GET",  "/render/{render_id}", None,                   RenderJob),
+]
+
+# Every model published in schema.json (the frontend generates TypeScript from it).
+API_MODELS = [
+    ExtractedColor, Item, AnalyzeForm, Candidate, AnalyzeResponse, SaveRequest, RejectRequest,
+    RejectResponse, ItemListResponse, Outfit, OutfitsGenerateRequest, OutfitsGenerateResponse,
+    AvatarScanResponse, Avatar, RenderRequest, RenderJob, HealthResponse, ErrorResponse,
 ]
 
 
 def fixture_name(method: str, path: str) -> str:
-    """'POST', '/ingest/{photo_id}/select' -> 'post_ingest_select'"""
-    parts = [p for p in path.strip("/").split("/") if not p.startswith("{")]
+    """Path parameters are dropped; a path that has one gets a `_detail` suffix.
+
+    'GET', '/items'          -> 'get_items'
+    'GET', '/items/{slug}'   -> 'get_items_detail'
+    'POST', '/items/analyze' -> 'post_items_analyze'
+    """
+    segs = path.strip("/").split("/")
+    parts = [p for p in segs if not p.startswith("{")]
+    if len(parts) != len(segs):
+        parts.append("detail")
     return "_".join([method.lower(), *parts])
