@@ -1,0 +1,52 @@
+{
+  "version": "placeholder-1",
+  "image": "placeholder",
+  "width": 600,
+  "height": 1200,
+  "head_slot": {
+    "x": 225,
+    "y": 40,
+    "w": 150,
+    "h": 170
+  },
+  "anchors": {
+    "top": {
+      "x": 150,
+      "y": 220,
+      "w": 300,
+      "h": 330
+    },
+    "outerwear": {
+      "x": 120,
+      "y": 210,
+      "w": 360,
+      "h": 420
+    },
+    "bottom": {
+      "x": 175,
+      "y": 520,
+      "w": 250,
+      "h": 480
+    },
+    "dress": {
+      "x": 150,
+      "y": 220,
+      "w": 300,
+      "h": 620
+    }
+  },
+  "shoes_area": {
+    "x": 180,
+    "y": 1040,
+    "w": 240,
+    "h": 120
+  },
+  "arms_overlay": null,
+  "layer_order": [
+    "bottom",
+    "dress",
+    "top",
+    "outerwear",
+    "arms"
+  ]
+}

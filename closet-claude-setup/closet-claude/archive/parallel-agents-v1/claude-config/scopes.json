@@ -1,0 +1,141 @@
+{
+  "_comment": "Human-owned. Paths are repo-relative prefixes; directories end with '/'. Agent scopes must not overlap, and each agent belongs to exactly one lane, so the two laptops never edit the same files. Run .claude/scripts/check_scopes.py after any change.",
+  "shared_append_only": [
+    ".claude/reports/"
+  ],
+  "task_files": [
+    "REPLY.md",
+    "evidence/"
+  ],
+  "human_only": [
+    "contract/",
+    "golden/",
+    "db/",
+    "backend/app/main.py",
+    "backend/app/routes_a.py",
+    "backend/app/routes_b.py",
+    "frontend/next.config.",
+    "CLAUDE.md",
+    "AGENT_RULES.md",
+    "TASKS.md",
+    "PRD.md",
+    "SCORER.md",
+    "WORKFLOW.md",
+    ".claude/agents/",
+    ".claude/commands/",
+    ".claude/skills/",
+    ".claude/hooks/",
+    ".claude/scripts/",
+    ".claude/settings.json",
+    ".claude/scopes.json",
+    ".claude/tasks/_templates/",
+    ".claude/reports/_registry.md",
+    ".claude/reports/_TEMPLATE.md"
+  ],
+  "human_owners": {
+    "contract/": "lane A human (freezes it; both humans approve changes)",
+    "backend/app/main.py": "lane A human",
+    "backend/app/routes_a.py": "lane A human",
+    "backend/app/routes_b.py": "lane B human",
+    "frontend/next.config.": "lane B human",
+    "golden/": "lane A human",
+    "db/": "lane B human",
+    "CLAUDE.md, AGENT_RULES.md, TASKS.md, WORKFLOW.md, .claude/ config": "lane B human (config owner)"
+  },
+  "agent_lanes": {
+    "cv-pipeline-engineer": "a",
+    "scan-ui-engineer": "a",
+    "backend-engineer": "a",
+    "gemini-integrator": "b",
+    "recommender-engineer": "b",
+    "render-engineer": "b",
+    "frontend-engineer": "b",
+    "docs-writer": "b",
+    "test-runner": "any",
+    "code-reviewer": "any"
+  },
+  "agents": {
+    "backend-engineer": [
+      "backend/app/__init__.py",
+      "backend/app/routes_scaffold.py",
+      "backend/app/demo/",
+      "backend/tests/test_scaffold.py",
+      "backend/tests/conftest.py",
+      "backend/tests/demo/",
+      "backend/pytest.ini",
+      "backend/requirements.txt",
+      "backend/Dockerfile",
+      "backend/.env.example"
+    ],
+    "cv-pipeline-engineer": [
+      "backend/app/pipeline/",
+      "backend/app/avatar/",
+      "backend/tests/pipeline/",
+      "backend/tests/avatar/",
+      "backend/scripts/"
+    ],
+    "scan-ui-engineer": [
+      "frontend/components/scan/",
+      "frontend/tests/scan/"
+    ],
+    "gemini-integrator": [
+      "backend/app/gemini/",
+      "backend/tests/gemini/"
+    ],
+    "recommender-engineer": [
+      "backend/app/recommend/",
+      "backend/tests/recommend/"
+    ],
+    "render-engineer": [
+      "backend/app/render/",
+      "backend/tests/render/"
+    ],
+    "frontend-engineer": [
+      "frontend/app/",
+      "frontend/components/closet/",
+      "frontend/components/outfit/",
+      "frontend/components/shared/",
+      "frontend/lib/",
+      "frontend/public/",
+      "frontend/tests/app/",
+      "frontend/package.json",
+      "frontend/package-lock.json",
+      "frontend/tsconfig.json",
+      "frontend/next-env.d.ts",
+      "frontend/postcss.config.",
+      "frontend/tailwind.config.",
+      "frontend/.env.example"
+    ],
+    "docs-writer": [
+      "README.md",
+      "docs/"
+    ],
+    "test-runner": [],
+    "code-reviewer": []
+  },
+  "task_agents": {
+    "S1": "backend-engineer",
+    "S2": "frontend-engineer",
+    "A1": "cv-pipeline-engineer",
+    "A2": "cv-pipeline-engineer",
+    "A3": "cv-pipeline-engineer",
+    "A4": "cv-pipeline-engineer",
+    "A5": "cv-pipeline-engineer",
+    "A6": "scan-ui-engineer",
+    "A7": "backend-engineer",
+    "B1": "gemini-integrator",
+    "B2": "recommender-engineer",
+    "B3": "recommender-engineer",
+    "B4": "render-engineer",
+    "B5": "frontend-engineer",
+    "B6": "frontend-engineer",
+    "QA1": "cv-pipeline-engineer",
+    "QA2": "scan-ui-engineer",
+    "QB1": "recommender-engineer",
+    "QB2": "frontend-engineer",
+    "QB3": "docs-writer",
+    "QB4": "recommender-engineer",
+    "QB5": "render-engineer",
+    "QB6": "gemini-integrator"
+  }
+}

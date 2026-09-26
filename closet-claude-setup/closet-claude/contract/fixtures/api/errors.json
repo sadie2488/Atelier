@@ -1,0 +1,20 @@
+[
+  {
+    "error": {
+      "code": "no_face_detected",
+      "message": "No face found in the capture. Center your face in the outline."
+    }
+  },
+  {
+    "error": {
+      "code": "no_garments_found",
+      "message": "No garments detected. Step back so your top is in frame."
+    }
+  },
+  {
+    "error": {
+      "code": "not_found",
+      "message": "Garment 100000000000000000000999 does not exist."
+    }
+  }
+]

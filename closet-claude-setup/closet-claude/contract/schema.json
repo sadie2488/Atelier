@@ -1,0 +1,1062 @@
+{
+  "$defs": {
+    "Avatar": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "head_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Head Url",
+          "type": "string"
+        },
+        "head_source": {
+          "$ref": "#/$defs/HeadSource"
+        },
+        "is_guest": {
+          "default": false,
+          "title": "Is Guest",
+          "type": "boolean"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "head_url",
+        "head_source",
+        "created_at"
+      ],
+      "title": "Avatar",
+      "type": "object"
+    },
+    "AvatarCreateResponse": {
+      "additionalProperties": false,
+      "description": "POST /avatar  (multipart: image=<face capture>, is_guest=<bool>)",
+      "properties": {
+        "avatar": {
+          "$ref": "#/$defs/Avatar"
+        }
+      },
+      "required": [
+        "avatar"
+      ],
+      "title": "AvatarCreateResponse",
+      "type": "object"
+    },
+    "Candidate": {
+      "additionalProperties": false,
+      "description": "One detected garment region, shown to the user to tap before saving.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^c[0-9]+$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "segment_class": {
+          "$ref": "#/$defs/SegmentClass"
+        },
+        "cutout_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Cutout Url",
+          "type": "string"
+        },
+        "bbox": {
+          "$ref": "#/$defs/Rect"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "segment_class",
+        "cutout_url",
+        "bbox"
+      ],
+      "title": "Candidate",
+      "type": "object"
+    },
+    "Category": {
+      "enum": [
+        "top",
+        "bottom",
+        "dress",
+        "outerwear",
+        "shoes",
+        "accessory"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "Color": {
+      "additionalProperties": false,
+      "description": "One color cluster of a garment, computed on opaque cutout pixels only.",
+      "properties": {
+        "lab": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Lab",
+          "type": "array"
+        },
+        "lch": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Lch",
+          "type": "array"
+        },
+        "hex": {
+          "pattern": "^#[0-9a-f]{6}$",
+          "title": "Hex",
+          "type": "string"
+        },
+        "weight": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lab",
+        "lch",
+        "hex",
+        "weight"
+      ],
+      "title": "Color",
+      "type": "object"
+    },
+    "DeletedCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "avatars": {
+          "minimum": 0,
+          "title": "Avatars",
+          "type": "integer"
+        },
+        "garments": {
+          "minimum": 0,
+          "title": "Garments",
+          "type": "integer"
+        },
+        "outfits": {
+          "minimum": 0,
+          "title": "Outfits",
+          "type": "integer"
+        },
+        "renders": {
+          "minimum": 0,
+          "title": "Renders",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "avatars",
+        "garments",
+        "outfits",
+        "renders"
+      ],
+      "title": "DeletedCounts",
+      "type": "object"
+    },
+    "DemoResetResponse": {
+      "additionalProperties": false,
+      "description": "POST /demo/reset  (removes guest avatars and garments and everything derived from them)",
+      "properties": {
+        "deleted": {
+          "$ref": "#/$defs/DeletedCounts"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "title": "DemoResetResponse",
+      "type": "object"
+    },
+    "ErrorBody": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ErrorBody",
+      "type": "object"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "not_found",
+        "no_face_detected",
+        "no_garments_found",
+        "mask_out_of_range",
+        "classification_failed",
+        "no_valid_outfits",
+        "gemini_unavailable"
+      ],
+      "title": "ErrorCode",
+      "type": "string"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "description": "Every 4xx/5xx response body.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "ErrorResponse",
+      "type": "object"
+    },
+    "Garment": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "photo_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{24}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Photo Id"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "ownership": {
+          "$ref": "#/$defs/Ownership"
+        },
+        "status": {
+          "$ref": "#/$defs/GarmentStatus"
+        },
+        "is_guest": {
+          "default": false,
+          "title": "Is Guest",
+          "type": "boolean"
+        },
+        "cutout_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Cutout Url",
+          "type": "string"
+        },
+        "bbox": {
+          "$ref": "#/$defs/Rect"
+        },
+        "colors": {
+          "items": {
+            "$ref": "#/$defs/Color"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Colors",
+          "type": "array"
+        },
+        "is_neutral": {
+          "title": "Is Neutral",
+          "type": "boolean"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subcategory": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subcategory"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Pattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "formality": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formality"
+        },
+        "style_tags": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Style Tags",
+          "type": "array"
+        },
+        "user_edited": {
+          "default": false,
+          "title": "User Edited",
+          "type": "boolean"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "source",
+        "ownership",
+        "status",
+        "cutout_url",
+        "bbox",
+        "colors",
+        "is_neutral",
+        "created_at"
+      ],
+      "title": "Garment",
+      "type": "object"
+    },
+    "GarmentListResponse": {
+      "additionalProperties": false,
+      "description": "GET /garments?ownership=owned|catalog&include_guest=true|false",
+      "properties": {
+        "garments": {
+          "items": {
+            "$ref": "#/$defs/Garment"
+          },
+          "title": "Garments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "garments"
+      ],
+      "title": "GarmentListResponse",
+      "type": "object"
+    },
+    "GarmentPatch": {
+      "additionalProperties": false,
+      "description": "PATCH /garments/{id}  (only the fields being changed; sets user_edited)",
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subcategory": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subcategory"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Pattern"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "formality": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formality"
+        },
+        "colors": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Color"
+              },
+              "maxItems": 4,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Colors"
+        }
+      },
+      "title": "GarmentPatch",
+      "type": "object"
+    },
+    "GarmentStatus": {
+      "enum": [
+        "ready",
+        "needs_review",
+        "failed"
+      ],
+      "title": "GarmentStatus",
+      "type": "string"
+    },
+    "HeadSource": {
+      "enum": [
+        "generated",
+        "photo_fallback"
+      ],
+      "title": "HeadSource",
+      "type": "string"
+    },
+    "HealthResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "ok",
+          "title": "Status",
+          "type": "string"
+        },
+        "contract_version": {
+          "title": "Contract Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "contract_version"
+      ],
+      "title": "HealthResponse",
+      "type": "object"
+    },
+    "IngestResponse": {
+      "additionalProperties": false,
+      "description": "POST /ingest  (multipart: image, source=scan|flatlay, ownership=owned|catalog, is_guest)\n\nAlways returns candidates; nothing is saved until /ingest/{photo_id}/select.\nA flat-lay returns exactly one candidate. The original image is deleted after this call.",
+      "properties": {
+        "photo_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Photo Id",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "minItems": 1,
+          "title": "Candidates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "photo_id",
+        "source",
+        "candidates"
+      ],
+      "title": "IngestResponse",
+      "type": "object"
+    },
+    "Outfit": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "anchor_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 2,
+          "title": "Item Ids",
+          "type": "array"
+        },
+        "needs_purchase": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs Purchase",
+          "type": "array"
+        },
+        "rank": {
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "rule_score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Rule Score",
+          "type": "number"
+        },
+        "breakdown": {
+          "$ref": "#/$defs/ScoreBreakdown"
+        },
+        "reason": {
+          "maxLength": 140,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "reason_source": {
+          "$ref": "#/$defs/ReasonSource"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "anchor_id",
+        "item_ids",
+        "rank",
+        "rule_score",
+        "breakdown",
+        "reason",
+        "reason_source",
+        "created_at"
+      ],
+      "title": "Outfit",
+      "type": "object"
+    },
+    "Ownership": {
+      "enum": [
+        "owned",
+        "catalog"
+      ],
+      "title": "Ownership",
+      "type": "string"
+    },
+    "Pattern": {
+      "enum": [
+        "solid",
+        "stripe",
+        "plaid",
+        "floral",
+        "graphic",
+        "other"
+      ],
+      "title": "Pattern",
+      "type": "string"
+    },
+    "ReasonSource": {
+      "enum": [
+        "llm",
+        "template"
+      ],
+      "title": "ReasonSource",
+      "type": "string"
+    },
+    "RecommendRequest": {
+      "additionalProperties": false,
+      "description": "POST /recommend  (the Make outfits button; Next outfit = offset + limit)",
+      "properties": {
+        "anchor_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "limit": {
+          "default": 3,
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "include_catalog": {
+          "default": true,
+          "title": "Include Catalog",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "anchor_id"
+      ],
+      "title": "RecommendRequest",
+      "type": "object"
+    },
+    "RecommendResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "outfits": {
+          "items": {
+            "$ref": "#/$defs/Outfit"
+          },
+          "title": "Outfits",
+          "type": "array"
+        },
+        "total_candidates": {
+          "minimum": 0,
+          "title": "Total Candidates",
+          "type": "integer"
+        },
+        "cache_hit": {
+          "title": "Cache Hit",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "anchor_id",
+        "outfits",
+        "total_candidates",
+        "cache_hit"
+      ],
+      "title": "RecommendResponse",
+      "type": "object"
+    },
+    "Rect": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        },
+        "w": {
+          "exclusiveMinimum": 0,
+          "title": "W",
+          "type": "integer"
+        },
+        "h": {
+          "exclusiveMinimum": 0,
+          "title": "H",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "Rect",
+      "type": "object"
+    },
+    "Render": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "avatar_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Avatar Id",
+          "type": "string"
+        },
+        "outfit_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Outfit Id",
+          "type": "string"
+        },
+        "image_url": {
+          "pattern": "^/media/[a-z]+/[0-9a-zA-Z_.-]+\\.png$",
+          "title": "Image Url",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "avatar_id",
+        "outfit_id",
+        "image_url",
+        "created_at"
+      ],
+      "title": "Render",
+      "type": "object"
+    },
+    "RenderRequest": {
+      "additionalProperties": false,
+      "description": "POST /render  (dressed avatar; the same PNG is the Save look download)",
+      "properties": {
+        "avatar_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Avatar Id",
+          "type": "string"
+        },
+        "outfit_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Outfit Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "avatar_id",
+        "outfit_id"
+      ],
+      "title": "RenderRequest",
+      "type": "object"
+    },
+    "RenderResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/Render"
+        }
+      },
+      "required": [
+        "render"
+      ],
+      "title": "RenderResponse",
+      "type": "object"
+    },
+    "ScoreBreakdown": {
+      "additionalProperties": false,
+      "description": "Each component is 0..1, higher is better.",
+      "properties": {
+        "hue": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Hue",
+          "type": "number"
+        },
+        "pattern": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Pattern",
+          "type": "number"
+        },
+        "formality": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Formality",
+          "type": "number"
+        }
+      },
+      "required": [
+        "hue",
+        "pattern",
+        "formality"
+      ],
+      "title": "ScoreBreakdown",
+      "type": "object"
+    },
+    "SegmentClass": {
+      "description": "Garment classes the clothing segmenter can return for a scan.",
+      "enum": [
+        "upper_clothes",
+        "coat",
+        "dress",
+        "pants",
+        "skirt",
+        "other"
+      ],
+      "title": "SegmentClass",
+      "type": "string"
+    },
+    "SelectRequest": {
+      "additionalProperties": false,
+      "description": "POST /ingest/{photo_id}/select",
+      "properties": {
+        "candidate_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Candidate Ids",
+          "type": "array"
+        },
+        "category_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Category"
+          },
+          "title": "Category Overrides",
+          "type": "object"
+        }
+      },
+      "required": [
+        "candidate_ids"
+      ],
+      "title": "SelectRequest",
+      "type": "object"
+    },
+    "SelectResponse": {
+      "additionalProperties": false,
+      "description": "Classification runs synchronously; each garment comes back ready or needs_review.",
+      "properties": {
+        "garments": {
+          "items": {
+            "$ref": "#/$defs/Garment"
+          },
+          "minItems": 1,
+          "title": "Garments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "garments"
+      ],
+      "title": "SelectResponse",
+      "type": "object"
+    },
+    "Source": {
+      "enum": [
+        "scan",
+        "flatlay"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "SwapRequest": {
+      "additionalProperties": false,
+      "description": "POST /recommend/swap  (replace one piece, keep the rest)",
+      "properties": {
+        "outfit_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Outfit Id",
+          "type": "string"
+        },
+        "replace_item_id": {
+          "pattern": "^[0-9a-f]{24}$",
+          "title": "Replace Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "outfit_id",
+        "replace_item_id"
+      ],
+      "title": "SwapRequest",
+      "type": "object"
+    },
+    "SwapResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "outfit": {
+          "$ref": "#/$defs/Outfit"
+        }
+      },
+      "required": [
+        "outfit"
+      ],
+      "title": "SwapResponse",
+      "type": "object"
+    },
+    "TemplateBody": {
+      "additionalProperties": false,
+      "description": "contract/template_body.json: where things go on the drawn body (pixels).",
+      "properties": {
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "image": {
+          "title": "Image",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "integer"
+        },
+        "head_slot": {
+          "$ref": "#/$defs/Rect"
+        },
+        "anchors": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Rect"
+          },
+          "propertyNames": {
+            "enum": [
+              "top",
+              "bottom",
+              "dress",
+              "outerwear"
+            ]
+          },
+          "title": "Anchors",
+          "type": "object"
+        },
+        "shoes_area": {
+          "$ref": "#/$defs/Rect"
+        },
+        "arms_overlay": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Arms Overlay"
+        },
+        "layer_order": {
+          "items": {
+            "enum": [
+              "bottom",
+              "dress",
+              "top",
+              "outerwear",
+              "arms"
+            ],
+            "type": "string"
+          },
+          "title": "Layer Order",
+          "type": "array"
+        }
+      },
+      "required": [
+        "version",
+        "image",
+        "width",
+        "height",
+        "head_slot",
+        "anchors",
+        "shoes_area",
+        "layer_order"
+      ],
+      "title": "TemplateBody",
+      "type": "object"
+    }
+  },
+  "title": "Closet app contract 1.0.0"
+}
