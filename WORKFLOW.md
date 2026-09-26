@@ -28,7 +28,7 @@ git checkout main && git pull --rebase           # 1. start from the latest main
 git checkout -b a/A1-flatlay                      # 2. branch: <lane>/<task>-<name>
 ```
 
-3. In Claude Code: `/task A1`. Answer its questions; let it work.
+3. In Claude Code: `/task A1`. The agent checks `STATUS.md`'s **In progress** table for scope overlap before touching anything, then adds its own row there. Answer its questions; let it work.
 4. **Review before committing:** read the diff (`git diff`), run the task's check yourself, and run the app if the task touches something visible.
 5. Let the agent commit, or commit yourself.
 6. **Merge and push:**
@@ -39,11 +39,12 @@ git checkout -b a/A1-flatlay                      # 2. branch: <lane>/<task>-<na
    git push
    git branch -d a/A1-flatlay
    ```
-7. Tell your teammate "pushed A1" (plus anything they need, e.g. a function signature). Every push to `main` redeploys both apps, so only merge working code.
+7. Tell your teammate "pushed A1" (plus anything they need, e.g. a function signature) — the agent should already have moved this into `STATUS.md`'s **Recently finished** table, so this is a heads-up, not the only record of it. Every push to `main` redeploys both apps, so only merge working code.
 8. `/clear` in Claude Code before the next task.
 
 ## Staying in sync
 
+- **Live scope check:** `STATUS.md` at the repo root is the shared board — an "In progress" table (who's touching what, right now) and a "Recently finished" table (check result + anything the other lane needs). Both agents read and write it as part of every task; skim it yourself at a check-in instead of relying only on memory of what got emailed or said out loud.
 - **Cross-lane dependencies** are marked ⇄ in `TASKS.md`: A2 and A5 need B1; A6 needs S2; B1 needs S1. Do S1 and S2 first so nobody waits long.
 - **Shared files:** `contract/` changes only with both of you agreeing (lane A edits, bumps `CONTRACT_VERSION`, pushes right away). `backend/app/main.py` is set up once in S1; after that each lane edits only its own `routes_a.py` / `routes_b.py`. `frontend/next.config.*` belongs to lane B.
 - **If `main` breaks:** revert the last merge first (`git revert -m 1 <merge-commit>`, push), then debug on a branch.
