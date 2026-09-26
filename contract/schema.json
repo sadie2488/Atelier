@@ -220,7 +220,8 @@
         "analyze_failed",
         "handle_expired",
         "gemini_unavailable",
-        "not_implemented"
+        "not_implemented",
+        "internal_error"
       ],
       "title": "ErrorCode",
       "type": "string"

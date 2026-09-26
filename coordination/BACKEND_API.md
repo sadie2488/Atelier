@@ -26,7 +26,7 @@ both sides.
   `{"error": {"code": "<ErrorCode>", "message": "<human-readable>"}}`. Codes: `invalid_request`,
   `not_found`, `pose_rejected` (message is the actionable reason), `no_person_detected`,
   `unsupported_image`, `analyze_failed`, `handle_expired`, `gemini_unavailable`,
-  `not_implemented` (501 while a lane hasn't built the route yet).
+  `not_implemented` (501 while a lane hasn't built the route yet), `internal_error` (500, unexpected failure).
 - **Types and examples:** generate TypeScript from `contract/schema.json`. Every endpoint has a
   request/response example in `contract/fixtures/api/` — build against those until the real
   route lands.
@@ -217,3 +217,4 @@ Append here on every change so the frontend can diff quickly.
 | — | Initial version. Polling chosen for the render swap; multipart for uploads; dresses filed under tops. |
 | — | Added `garment_type` to analyze — required alongside `category`. |
 | 2026-09-26 | Contract 2.0.0 frozen: this document's endpoints are now the contract. Added error codes, ID formats, and pointers to `contract/schema.json` and `contract/fixtures/api/`. Analyze form fields: `category`, `garment_type`, optional `color`, optional `item_name`. `POST /api/outfits/generate` takes `{"limit": 1..5}` (default 5; `{}` is valid). All routes return 501 `not_implemented` until each lane lands. |
+| 2026-09-26 | Added error code `internal_error` (500). Items, outfits, avatar scan and render endpoints are live on the backend; render currently returns `status: failed` (local composite only) until Gemini try-on lands. |

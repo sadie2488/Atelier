@@ -76,6 +76,7 @@ class ErrorCode(str, Enum):
     handle_expired = "handle_expired"            # temp_handle unknown, used, or swept
     gemini_unavailable = "gemini_unavailable"
     not_implemented = "not_implemented"          # 501 from a route a lane hasn't built yet
+    internal_error = "internal_error"            # any lane: unexpected internal failure (500), never a bare stack trace
 
 
 # ---- Shared thresholds (one source of truth for pipeline, scorer, and tests) ----

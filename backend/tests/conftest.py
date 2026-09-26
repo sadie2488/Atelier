@@ -46,6 +46,15 @@ class FakeCollection:
     def insert_one(self, doc):
         self.docs.append(dict(doc))
 
+    def update_one(self, flt, update, upsert=False):
+        """Supports {"$set": {...}} only."""
+        for d in self.docs:
+            if self._match(d, flt):
+                d.update(update.get("$set", {}))
+                return
+        if upsert:
+            self.docs.append({**flt, **update.get("$set", {})})
+
     def count_documents(self, flt=None):
         return sum(self._match(d, flt) for d in self.docs)
 
