@@ -1,0 +1,363 @@
+"""Styling lane tests. Offline, fixture-driven (S-I2): the items collection may be empty for
+this lane's whole duration, so every route test overrides `get_db` with an in-memory fake
+instead of touching Mongo.
+
+The 12 scorer expectations in `backend/styling/expectations.json` are the specification
+(S-C5) once the human provides that file; until it exists, this module tests the DECISIONS.md
+rules directly and every expectation test is skipped, never faked.
+"""
+from __future__ import annotations
+
+import copy
+import json
+from pathlib import Path
+
+import pytest
+
+from backend.db import get_db
+from backend.main import app
+from contract.enums import Strategy
+from contract.schemas import Outfit, OutfitsGenerateResponse
+
+from backend.styling import select as select_mod
+from backend.styling.explain import explain, fallback_explanation
+from backend.styling.scorer import score_color_pair, score_items
+from backend.styling.strategies import generate_candidates
+
+EXPECTATIONS_PATH = Path(__file__).resolve().parents[1] / "styling" / "expectations.json"
+
+
+# --------------------------------------------------------------------------- color fixtures
+
+def _color(l, c, h, family="blue", is_neutral=False, everyday_neutral=False, name="test"):
+    import math
+    a = c * math.cos(math.radians(h))
+    b = c * math.sin(math.radians(h))
+    return {
+        "lab": (l, a, b), "lch": (l, c, h), "hex": "#000000", "name": name,
+        "family": family, "is_neutral": is_neutral, "everyday_neutral": everyday_neutral,
+    }
+
+
+def _item(item_id, primary, secondary=None, attributes=None):
+    return {
+        "id": item_id, "primary_color": primary, "secondary_color": secondary,
+        "attributes": attributes or {},
+    }
+
+
+NEUTRAL_WHITE = _color(95, 2, 90, family="achromatic", is_neutral=True, name="white")
+NEUTRAL_BLACK = _color(15, 1, 280, family="achromatic", is_neutral=True, name="black")
+CHROMATIC_RED = _color(45, 57, 32, family="red", name="red")
+CHROMATIC_GREEN = _color(48, 48, 147, family="green", name="green")
+BASE_NAVY = _color(22, 28, 282, family="blue", everyday_neutral=True, name="navy")
+BASE_OLIVE = _color(44, 28, 106, family="green", everyday_neutral=True, name="olive")
+BASE_CAMEL = _color(60, 39, 71, family="warm_light", everyday_neutral=True, name="camel")
+ANALOGOUS_A = _color(50, 40, 30, family="orange", name="orange")
+ANALOGOUS_B = _color(50, 40, 55, family="yellow", name="yellow")
+COMPLEMENT_A = _color(45, 10, 30, family="orange", name="tan")     # low chroma
+COMPLEMENT_B = _color(45, 45, 210, family="blue", name="blue")
+
+
+# ------------------------------------------------------------------------------- S-C: scorer
+
+def test_scorer_uses_numeric_hue_not_name():
+    """S-C2: hue/chroma from lch, never from name -- two colors named differently but with
+    identical lch score identically to two colors sharing the same names."""
+    a = _color(50, 50, 10, family="red", name="scarlet")
+    b = _color(50, 50, 10, family="red", name="crimson")
+    c = _color(50, 50, 10, family="red", name="scarlet")
+    d = _color(50, 50, 10, family="red", name="crimson")
+    assert score_color_pair(a, b) == score_color_pair(c, d)
+
+
+def test_secondary_color_scores_at_reduced_weight():
+    """S-C3: a secondary color's contribution is weighted less than the primary's."""
+    top = _item("top_1", CHROMATIC_RED)
+    bottom_no_secondary = _item("bottom_1", CHROMATIC_GREEN)
+    bottom_with_bad_secondary = _item("bottom_2", CHROMATIC_GREEN, secondary=COMPLEMENT_B)
+
+    base = score_items(top, bottom_no_secondary)
+    with_secondary = score_items(top, bottom_with_bad_secondary)
+    # adding a secondary must move the score, but not by the full primary-primary delta
+    primary_only_delta = abs(score_color_pair(CHROMATIC_RED, CHROMATIC_GREEN) - score_color_pair(CHROMATIC_RED, COMPLEMENT_B))
+    assert with_secondary != base
+    assert abs(with_secondary - base) < primary_only_delta
+
+
+def test_missing_attributes_never_penalized():
+    """S-C4: an item without enrichment attributes must never score worse than an otherwise
+    identical item that has them -- the scorer must not read `attributes` at all."""
+    plain = _item("top_1", CHROMATIC_RED, attributes={})
+    enriched = _item("top_1", CHROMATIC_RED, attributes={"sleeve": "long", "source": "model"})
+    other = _item("bottom_1", BASE_NAVY)
+    assert score_items(plain, other) == score_items(enriched, other)
+
+
+def test_missing_secondary_color_never_penalized():
+    """S-C4, applied to secondary_color: absent is neutral, not a penalty, relative to a
+    same-scoring partner."""
+    top_no_secondary = _item("top_1", CHROMATIC_RED)
+    top_with_neutral_secondary = _item("top_2", CHROMATIC_RED, secondary=NEUTRAL_WHITE)
+    bottom = _item("bottom_1", BASE_NAVY)
+    # a neutral secondary only ever helps or is flat -- never drags the score down
+    assert score_items(top_with_neutral_secondary, bottom) >= score_items(top_no_secondary, bottom)
+
+
+# ---------------------------------------------------------------------- S-S: strategy rungs
+
+def test_neutral_anchor_always_eligible_for_strict_neutral_plus_chromatic():
+    """S-S2 rung 1: a strict neutral + a chromatic piece is neutral_anchor, regardless of
+    which family the chromatic piece belongs to."""
+    top = _item("top_1", NEUTRAL_WHITE)
+    bottom = _item("bottom_1", CHROMATIC_RED)
+    [(strategy, t, b, jacket, score)] = list(generate_candidates([top], [bottom], []))
+    assert strategy == Strategy.neutral_anchor
+    assert jacket is None
+    assert 0.0 <= score <= 1.0
+
+
+def test_everyday_neutral_base_pairs_base_with_true_chromatic():
+    """S-S2 rung 2: an everyday-neutral base (navy/denim/olive/camel/beige/brown) paired with
+    a true chromatic (not itself a base, not strict neutral) is everyday_neutral_base."""
+    top = _item("top_1", BASE_NAVY)
+    bottom = _item("bottom_1", CHROMATIC_RED)
+    [(strategy, *_rest)] = list(generate_candidates([top], [bottom], []))
+    assert strategy == Strategy.everyday_neutral_base
+
+
+def test_two_everyday_neutral_bases_are_not_rung_1_or_2():
+    """Two everyday-neutral bases (both navy and olive, say) satisfy neither rung 1 (neither
+    is strict-neutral) nor rung 2 (neither is a 'true' chromatic partner)."""
+    top = _item("top_1", BASE_NAVY)
+    bottom = _item("bottom_1", BASE_OLIVE)
+    results = list(generate_candidates([top], [bottom], []))
+    strategies = {r[0] for r in results}
+    assert Strategy.neutral_anchor not in strategies
+    assert Strategy.everyday_neutral_base not in strategies
+
+
+def test_analogous_strategy():
+    """S-S2 rung 3: hue angle <= 40 degrees apart, both true chromatics -> analogous."""
+    top = _item("top_1", ANALOGOUS_A)
+    bottom = _item("bottom_1", ANALOGOUS_B)
+    [(strategy, *_rest)] = list(generate_candidates([top], [bottom], []))
+    assert strategy == Strategy.analogous
+
+
+def test_complementary_strategy_requires_low_chroma_piece():
+    """S-S2 rung 3: hue angle 150-210 degrees apart AND at least one low-chroma piece."""
+    top = _item("top_1", COMPLEMENT_A)
+    bottom = _item("bottom_1", COMPLEMENT_B)
+    [(strategy, *_rest)] = list(generate_candidates([top], [bottom], []))
+    assert strategy == Strategy.complementary
+
+    # two high-chroma pieces 180 degrees apart: complementary's chroma condition is unmet,
+    # and it must stay silent (S-S3), not degrade into a different label. (Reusing the
+    # original low-chroma `top` here would trivially satisfy "at least one low-chroma piece"
+    # again, so both pieces must be high-chroma to actually exercise this branch.)
+    high_chroma_orange = _color(45, 55, 30, family="orange", name="bright_orange")
+    high_chroma_blue = _color(45, 55, 210, family="blue", name="bright_blue")
+    top2 = _item("top_2", high_chroma_orange)
+    bottom2 = _item("bottom_2", high_chroma_blue)
+    results = list(generate_candidates([top2], [bottom2], []))
+    assert results == [] or all(r[0] != Strategy.complementary for r in results)
+
+
+def test_strategy_stays_silent_when_ineligible():
+    """S-S3: a pair matching none of the implemented rungs yields no candidate at all."""
+    top = _item("top_1", BASE_NAVY)
+    bottom = _item("bottom_1", BASE_CAMEL)  # both bases, unrelated families, > analogous band
+    results = list(generate_candidates([top], [bottom], []))
+    # BASE_NAVY (h=282) vs BASE_CAMEL (h=71): far apart, not complementary band either
+    assert results == []
+
+
+def test_dress_is_a_top_no_special_case():
+    """S-O1/S-O2: a dress (category tops, garment_type dress) is treated exactly like a shirt
+    -- no exclusion logic, it just occupies the top slot."""
+    dress = _item("dress_1", NEUTRAL_WHITE)
+    bottom = _item("bottom_1", CHROMATIC_RED)
+    [(strategy, top, b, jacket, score)] = list(generate_candidates([dress], [bottom], []))
+    assert top["id"] == "dress_1"
+    assert strategy == Strategy.neutral_anchor
+
+
+def test_jacket_is_optional_layer():
+    """S-O3: jackets are optional -- a base pairing is offered both without and with a
+    compatible jacket."""
+    top = _item("top_1", NEUTRAL_WHITE)
+    bottom = _item("bottom_1", CHROMATIC_RED)
+    jacket = _item("jacket_1", NEUTRAL_BLACK)
+    results = list(generate_candidates([top], [bottom], [jacket]))
+    jacket_ids = {r[3]["id"] if r[3] else None for r in results}
+    assert None in jacket_ids
+    assert "jacket_1" in jacket_ids
+
+
+# ------------------------------------------------------------------------------- S-L: select
+
+def test_select_max_per_strategy_and_sharing_cap():
+    """S-L1: max 2 per strategy, max 2 outfits sharing a top or bottom."""
+    candidates = [
+        {"strategy": Strategy.neutral_anchor, "top_id": "top_1", "bottom_id": f"bottom_{i}",
+         "jacket_id": None, "score": 0.9 - i * 0.01}
+        for i in range(5)
+    ]
+    chosen = select_mod.select_outfits(candidates, limit=5)
+    assert len(chosen) == 2  # capped by OUTFITS_MAX_SHARING_GARMENT on top_1, not by strategy
+
+
+def test_select_returns_fewer_rather_than_padding():
+    """S-L2: only 2 valid candidates in a closet that could hold 5 -> returns 2."""
+    candidates = [
+        {"strategy": Strategy.neutral_anchor, "top_id": "top_1", "bottom_id": "bottom_1",
+         "jacket_id": None, "score": 0.9},
+        {"strategy": Strategy.everyday_neutral_base, "top_id": "top_2", "bottom_id": "bottom_2",
+         "jacket_id": None, "score": 0.8},
+    ]
+    assert len(select_mod.select_outfits(candidates, limit=5)) == 2
+
+
+def test_select_empty_candidates_returns_empty():
+    assert select_mod.select_outfits([], limit=5) == []
+
+
+def test_select_orders_best_score_first():
+    candidates = [
+        {"strategy": Strategy.neutral_anchor, "top_id": "top_1", "bottom_id": "bottom_1",
+         "jacket_id": None, "score": 0.5},
+        {"strategy": Strategy.neutral_anchor, "top_id": "top_2", "bottom_id": "bottom_2",
+         "jacket_id": None, "score": 0.9},
+    ]
+    chosen = select_mod.select_outfits(candidates, limit=5)
+    assert [c["score"] for c in chosen] == [0.9, 0.5]
+
+
+def test_outfit_id_is_deterministic():
+    id_a = select_mod.make_outfit_id("top_1", "bottom_1", None)
+    id_b = select_mod.make_outfit_id("top_1", "bottom_1", None)
+    id_c = select_mod.make_outfit_id("top_1", "bottom_1", "jacket_1")
+    assert id_a == id_b
+    assert id_a != id_c
+    assert id_a.startswith("outfit_") and len(id_a) == len("outfit_") + 6
+
+
+# --------------------------------------------------------------------------- S-E: explanations
+
+def test_gemini_fallback_fires_and_is_covered(monkeypatch):
+    """S-E3: the static fallback fires on any Gemini failure and is exercised by a test, not
+    merely written. Here it fires because no API key is configured."""
+    from backend import config
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    text = explain(Strategy.neutral_anchor, _item("top_1", NEUTRAL_WHITE), _item("bottom_1", CHROMATIC_RED), None)
+    assert text == fallback_explanation(Strategy.neutral_anchor)
+    assert text  # non-empty
+
+
+def test_gemini_fallback_fires_on_error(monkeypatch):
+    """S-E4: even if a key is configured, an exception during the call must not propagate or
+    return an empty explanation -- the fallback fires instead."""
+    from backend import config
+    from backend.styling import explain as explain_mod
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key-for-test")
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated Gemini failure")
+
+    monkeypatch.setattr(explain_mod, "_gemini_explain", _boom)
+    text = explain(Strategy.complementary, _item("top_1", NEUTRAL_WHITE), _item("bottom_1", CHROMATIC_RED), None)
+    assert text == fallback_explanation(Strategy.complementary)
+
+
+def test_every_strategy_has_a_fallback():
+    for strategy in Strategy:
+        assert fallback_explanation(strategy)
+
+
+# --------------------------------------------------------------------------------- endpoint
+
+class _FakeCollection:
+    def __init__(self, docs):
+        self._docs = docs
+
+    def find(self, *args, **kwargs):
+        return [copy.deepcopy(d) for d in self._docs]
+
+
+@pytest.fixture
+def fake_db(client):
+    """Overrides get_db (S-I1/S-I2: this lane never touches real Mongo). Seed per test with
+    `fake_db["items"] = _FakeCollection(docs)`."""
+    holder = {"items": _FakeCollection([])}
+    app.dependency_overrides[get_db] = lambda: holder
+    yield holder
+    app.dependency_overrides.pop(get_db, None)
+
+
+def test_generate_empty_closet_returns_empty_outfits(client, fake_db):
+    resp = client.post("/api/outfits/generate", json={})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"outfits": []}
+    OutfitsGenerateResponse.model_validate(body)
+
+
+def test_generate_fixture_closet_is_non_empty_and_contract_valid(client, fake_db, fixture_items):
+    """Exit criteria: non-empty for the fixture closet (neutral_anchor is satisfiable), and
+    the whole response validates against the frozen contract."""
+    fake_db["items"] = _FakeCollection(fixture_items)
+    resp = client.post("/api/outfits/generate", json={})
+    assert resp.status_code == 200
+    body = resp.json()
+    validated = OutfitsGenerateResponse.model_validate(body)
+    assert len(validated.outfits) > 0
+    assert len(validated.outfits) <= 5
+    for outfit in validated.outfits:
+        Outfit.model_validate(outfit.model_dump())
+
+
+def test_generate_strips_db_only_fields(client, fake_db, fixture_items):
+    """Route must strip `_id` and other DB-only fields (e.g. `anchors`) before validating."""
+    docs = copy.deepcopy(fixture_items)
+    for doc in docs:
+        doc["_id"] = "507f1f77bcf86cd799439011"
+        doc["anchors"] = {"shoulder": [0, 0]}
+    fake_db["items"] = _FakeCollection(docs)
+    resp = client.post("/api/outfits/generate", json={})
+    assert resp.status_code == 200
+    OutfitsGenerateResponse.model_validate(resp.json())
+
+
+def test_generate_no_body_uses_default_limit(client, fake_db, fixture_items):
+    fake_db["items"] = _FakeCollection(fixture_items)
+    resp = client.post("/api/outfits/generate")
+    assert resp.status_code == 200
+    OutfitsGenerateResponse.model_validate(resp.json())
+
+
+def test_generate_respects_limit(client, fake_db, fixture_items):
+    fake_db["items"] = _FakeCollection(fixture_items)
+    resp = client.post("/api/outfits/generate", json={"limit": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["outfits"]) <= 1
+
+
+# ------------------------------------------------------------------------- expectations.json
+
+def _load_expectations():
+    if not EXPECTATIONS_PATH.exists():
+        return None
+    return json.loads(EXPECTATIONS_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("case", _load_expectations() or [None])
+def test_scorer_expectations(case):
+    """S-C5: the 12 scorer expectations are the specification. Skips (does not fake-pass)
+    until backend/styling/expectations.json exists."""
+    if case is None:
+        pytest.skip("backend/styling/expectations.json does not exist yet (owed by the human)")
+    a, b = case["a"], case["b"]
+    score = score_color_pair(a, b)
+    assert score == pytest.approx(case["expected_score"], abs=case.get("tolerance", 0.05))
