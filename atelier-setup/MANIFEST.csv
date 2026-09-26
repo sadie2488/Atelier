@@ -1,0 +1,31 @@
+# Atelier fixture manifest. 20 retail product images.
+# filename: file in fixtures/images/
+# category: tops | bottoms | jackets
+# garment_type: shirt | dress | pants | skirt | shorts | jacket | coat
+#   (a dress is category=tops, garment_type=dress)
+# retailer_color: the store's color string, verbatim (e.g. "Ecru", "Midnight")
+# retailer_item_name: the store's product name, verbatim
+# hand_label_hex: YOUR eyeball of the garment's true primary color, as #RRGGBB
+# pose_ok: y/n - front-facing, arms down, neutral. Aim for all y.
+# notes: anything unusual (two models, busy background, blown highlights)
+filename,category,garment_type,retailer_color,retailer_item_name,hand_label_hex,pose_ok,notes
+,tops,shirt,,,,,
+,tops,shirt,,,,,
+,tops,shirt,,,,,
+,tops,shirt,,,,,
+,tops,shirt,,,,,
+,tops,shirt,,,,,
+,tops,dress,,,,,
+,tops,dress,,,,,
+,tops,dress,,,,,
+,tops,dress,,,,,
+,tops,dress,,,,,
+,bottoms,pants,,,,,
+,bottoms,pants,,,,,
+,bottoms,pants,,,,,
+,bottoms,skirt,,,,,
+,bottoms,shorts,,,,,
+,jackets,jacket,,,,,
+,jackets,jacket,,,,,
+,jackets,coat,,,,,
+,jackets,coat,,,,,
