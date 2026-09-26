@@ -16,6 +16,7 @@ immediately instead of surfacing as a merge conflict or a broken build later.
 
 | Lane | Task | Files touched | Check result | Notes for the other lane |
 | --- | --- | --- | --- | --- |
+| A | S1 | backend/app/{__init__,main,routes_a,routes_b,routes_scaffold}.py, backend/tests/{conftest,test_scaffold}.py, backend/pytest.ini, requirements.txt, Dockerfile, .env.example | `pytest tests/test_scaffold.py` 13 passed | All routes under `/api` prefix. Replace fixture routes in `routes_b.py`: build your own `APIRouter`, keep `LANE_B_PATHS` (routes_a excludes those paths). `routes_scaffold.fixture_router(endpoints_for({...}))` serves any remaining fixtures. Media dir = `backend/media` (override `MEDIA_DIR`). Docker: build from repo root, `docker build -f backend/Dockerfile .`. Added `pytest` to requirements. |
 <!-- Move your row here from "In progress" when you finish. Keep the
      "Notes" column for things the other lane actually needs: a function
      signature they'll call, a schema field you added, a fixture you
