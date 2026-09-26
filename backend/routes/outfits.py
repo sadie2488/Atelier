@@ -11,7 +11,7 @@ from contract.schemas import Item, Outfit, OutfitsGenerateRequest, OutfitsGenera
 
 from backend.styling import select as select_mod
 from backend.styling import weights as W
-from backend.styling.explain import explain
+from backend.styling.explain import explain_many
 from backend.styling.strategies import generate_candidates
 
 router = APIRouter(prefix="/outfits", tags=["outfits"])
@@ -50,6 +50,12 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
 
     chosen = select_mod.select_outfits(candidates, min(req.limit, W.OUTFITS_MAX))
 
+    # One shared-deadline batch call (S-E4), not one blocking call per outfit: a slow/hanging
+    # Gemini must not multiply the response latency by the number of outfits.
+    explanations = explain_many(
+        [(c["strategy"], c["top"], c["bottom"], c["jacket"]) for c in chosen]
+    )
+
     outfits = [
         Outfit(
             outfit_id=select_mod.make_outfit_id(c["top_id"], c["bottom_id"], c["jacket_id"]),
@@ -57,10 +63,10 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
             top_id=c["top_id"],
             bottom_id=c["bottom_id"],
             jacket_id=c["jacket_id"],
-            explanation=explain(c["strategy"], c["top"], c["bottom"], c["jacket"]),
+            explanation=explanation,
             score=round(c["score"], 4),
         )
-        for c in chosen
+        for c, explanation in zip(chosen, explanations)
     ]
 
     return OutfitsGenerateResponse(outfits=outfits)

@@ -60,3 +60,10 @@ JACKET_MIN_COMPATIBILITY = 0.4
 
 # Re-exported for readability where scorer.py needs the shared neutral-chroma threshold.
 NEUTRAL_CHROMA_MAX = NEUTRAL_CHROMA_MAX
+
+# ---- explanations (S-E4): the whole batch of Gemini explanations for one
+# POST /api/outfits/generate response must return within this fixed wall-clock budget,
+# regardless of how many outfits are being explained or how slow Gemini is. Any explanation
+# not finished by the deadline falls back to its static per-strategy text instead of blocking
+# the response.
+EXPLAIN_BUDGET_SECONDS = 2.5

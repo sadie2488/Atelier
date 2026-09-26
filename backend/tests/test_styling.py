@@ -275,6 +275,45 @@ def test_every_strategy_has_a_fallback():
         assert fallback_explanation(strategy)
 
 
+def test_generate_endpoint_does_not_wait_per_outfit_on_slow_gemini(monkeypatch, client, fake_db, fixture_items):
+    """S-E4 (latency): explanations are requested concurrently on ONE shared deadline, not
+    sequentially -- a Gemini call that hangs past the budget on every outfit must not multiply
+    the response latency by the outfit count. Offline: `_gemini_explain` is monkeypatched to
+    sleep, never hits the network."""
+    import time
+
+    from backend import config
+    from backend.styling import explain as explain_mod
+    from backend.styling import weights as W
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key-for-test")
+
+    def _slow(strategy, top, bottom, jacket):
+        time.sleep(W.EXPLAIN_BUDGET_SECONDS + 5)
+        return "should never be seen: this call was too slow"
+
+    monkeypatch.setattr(explain_mod, "_gemini_explain", _slow)
+    # Each outfit's color combo must be unique so the in-process cache can't short-circuit a
+    # repeat and mask the timeout behavior this test exists to check.
+    explain_mod._cache.clear()
+
+    fake_db["items"] = _FakeCollection(fixture_items)
+
+    start = time.monotonic()
+    resp = client.post("/api/outfits/generate", json={})
+    elapsed = time.monotonic() - start
+
+    assert resp.status_code == 200
+    body = resp.json()
+    validated = OutfitsGenerateResponse.model_validate(body)
+    assert len(validated.outfits) > 0
+
+    assert elapsed < W.EXPLAIN_BUDGET_SECONDS + 1.0
+
+    for outfit in validated.outfits:
+        assert outfit.explanation == fallback_explanation(outfit.strategy)
+
+
 # --------------------------------------------------------------------------------- endpoint
 
 class _FakeCollection:
