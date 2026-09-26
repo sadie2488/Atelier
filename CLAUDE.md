@@ -21,10 +21,11 @@ Ask your human if it isn't obvious from the branch name (`a/...` or `b/...`).
 - Use `/task <ID>`. Read only that task's section of `TASKS.md` and the files it names. Don't read the PRD or explore the repo "for context".
 - Build against `contract/schemas.py`, `contract/enums.py`, and the fixtures in `contract/fixtures/`. If the contract seems wrong or missing something, stop and tell your human; don't work around it.
 - The scorer follows `SCORER.md` exactly, including its test expectations.
+- Check `STATUS.md`'s **In progress** table. If any row's files overlap with your task's files, stop and tell your human before touching anything — don't assume it's safe just because your lane "owns" that folder on paper. If it's clear, add your own row (lane, task ID, files, started) before you start editing.
 
 ## While working
 
-- **Stay in your lane's folders.** If you need something from the other lane, stop and tell your human; the two humans coordinate.
+- **Stay in your lane's folders.** If you need something from the other lane, stop and tell your human; the two humans coordinate. Your task's file list in `TASKS.md` is the actual scope — treat editing anything outside it as a bug, even if it seems related.
 - **Multiple agents may be working simultaneously. If you see build errors in files you did NOT edit, do not try to fix them. Wait 30 seconds and retry the build - the other agent is likely mid edit.** Here that usually means the other person pushed work in progress and your human pulled it. Retry at most 3 times, then stop and tell your human.
 - **Git:** work on the current feature branch and commit when the task's check passes. Never push, merge into `main`, rebase shared branches, force anything, or `reset --hard`; humans do that.
 - **Product rules:** no chat interface or free-text input sent to an LLM. Every Gemini call goes through `backend/app/gemini/`. No business logic in Next.js; it's a presentation layer and FastAPI does the work. Camera and MediaPipe code lives only in client components (`"use client"`).
@@ -36,12 +37,12 @@ Ask your human if it isn't obvious from the branch name (`a/...` or `b/...`).
 
 ## Finishing a task
 
-Tell your human, briefly:
-
-1. The files you changed.
-2. The last lines of the task's check output (pass or fail).
-3. A suggested commit message.
-4. Anything the other lane needs to know (for example, a function signature they'll call).
+1. Move your row in `STATUS.md` from **In progress** to **Recently finished**: fill in the check result and anything the other lane needs (for example, a function signature they'll call, a schema field you added). Leave "Notes" blank if there's nothing to flag.
+2. Tell your human, briefly:
+   1. The files you changed.
+   2. The last lines of the task's check output (pass or fail).
+   3. A suggested commit message.
+   4. Anything the other lane needs to know (same as the `STATUS.md` note).
 
 ## Token budget
 
