@@ -8,11 +8,11 @@ A hackathon closet app: scan a face into a drawn avatar, scan the user's top int
 
 Ask your human if it isn't obvious from the branch name (`a/...` or `b/...`).
 
-| | Lane A: Scan & avatar | Lane B: Recommend & render |
-| --- | --- | --- |
-| Backend | `backend/app/pipeline/`, `backend/app/avatar/`, `backend/app/demo/`, `backend/app/routes_a.py`, `backend/scripts/`, app scaffold files | `backend/app/gemini/`, `backend/app/recommend/`, `backend/app/render/`, `backend/app/routes_b.py` |
-| Frontend | `frontend/components/scan/` | everything else in `frontend/` |
-| Tests | `backend/tests/` for your modules, `frontend/tests/scan/` | `backend/tests/` for your modules, other `frontend/tests/` |
+|          | Lane A: Scan & avatar                                                                                                                  | Lane B: Recommend & render                                                                        |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Backend  | `backend/app/pipeline/`, `backend/app/avatar/`, `backend/app/demo/`, `backend/app/routes_a.py`, `backend/scripts/`, app scaffold files | `backend/app/gemini/`, `backend/app/recommend/`, `backend/app/render/`, `backend/app/routes_b.py` |
+| Frontend | `frontend/components/scan/`                                                                                                            | everything else in `frontend/`                                                                    |
+| Tests    | `backend/tests/` for your modules, `frontend/tests/scan/`                                                                              | `backend/tests/` for your modules, other `frontend/tests/`                                        |
 
 **Read-only for both agents:** `contract/` (the frozen API contract), `SCORER.md`, `PRD.md`, `WORKFLOW.md`, `frontend/next.config.*`. **Never read** `archive/`.
 
@@ -37,6 +37,7 @@ Ask your human if it isn't obvious from the branch name (`a/...` or `b/...`).
 ## Finishing a task
 
 Tell your human, briefly:
+
 1. The files you changed.
 2. The last lines of the task's check output (pass or fail).
 3. A suggested commit message.
@@ -48,3 +49,9 @@ Tell your human, briefly:
 - Don't open images unless the task says to; your human looks at screenshots.
 - Keep command output short: `pytest -q --tb=short`, `tail -n 40`, `grep`. Never print whole logs, lockfiles, or build output.
 - When compacting, keep: the task ID, its files and check, files changed so far, and the latest check output.
+
+## Tech Stack
+
+## Common Commands
+
+## Architecture
