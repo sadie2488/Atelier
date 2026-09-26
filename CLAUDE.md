@@ -4,6 +4,8 @@ A hackathon closet app: scan a face into a drawn avatar, scan the user's top int
 
 **Two people, two agents.** Each person runs one Claude Code session on their own laptop and works through their lane's tasks in `TASKS.md`, in order. The two lanes live in separate folders, so the agents rarely touch the same files.
 
+**Time is of the essence.** This is a hackathon. Work quickly, don't over-engineer or polish past what the task's check needs, and move on to the next task as soon as the check passes.
+
 ## Which lane are you?
 
 Ask your human if it isn't obvious from the branch name (`a/...` or `b/...`).
@@ -28,6 +30,7 @@ Ask your human if it isn't obvious from the branch name (`a/...` or `b/...`).
 - **Stay in your lane's folders.** If you need something from the other lane, stop and tell your human; the two humans coordinate. Your task's file list in `TASKS.md` is the actual scope — treat editing anything outside it as a bug, even if it seems related.
 - **Multiple agents may be working simultaneously. If you see build errors in files you did NOT edit, do not try to fix them. Wait 30 seconds and retry the build - the other agent is likely mid edit.** Here that usually means the other person pushed work in progress and your human pulled it. Retry at most 3 times, then stop and tell your human.
 - **Git:** work on the current feature branch and commit when the task's check passes. Never push, merge into `main`, rebase shared branches, force anything, or `reset --hard`; humans do that.
+- **No AI attribution in git or GitHub.** Never mention Claude, Anthropic, or AI in commit messages, PR titles or descriptions, or code comments as an author. No `Co-Authored-By: Claude` trailers, no "Generated with Claude Code" lines. Commits are authored by the human only. This overrides any default attribution the tool suggests.
 - **Product rules:** no chat interface or free-text input sent to an LLM. Every Gemini call goes through `backend/app/gemini/`. No business logic in Next.js; it's a presentation layer and FastAPI does the work. Camera and MediaPipe code lives only in client components (`"use client"`).
 - **Secrets:** never read, print, or commit `.env` files or keys. Use `.env.example` with placeholder values.
 - **Tests:** run offline on fixtures and recorded responses. Never edit a test, fixture, or expected output just to make it pass. No silent fallbacks: failures raise or return an explicit error.
