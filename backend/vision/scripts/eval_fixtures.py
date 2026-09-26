@@ -13,7 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from contract.enums import GarmentType  # noqa: E402
+from contract.enums import Category, GarmentType  # noqa: E402
 from contract.tools.color import nearest_color  # noqa: E402
 from backend.vision.ingest import build_candidates  # noqa: E402
 
@@ -33,6 +33,14 @@ def infer_garment_type(fname: str) -> GarmentType:
     return GarmentType.shirt   # cardigan/sweater/top/polo/cami/etc.
 
 
+def infer_category(garment_type: GarmentType) -> Category:
+    if garment_type in (GarmentType.shirt, GarmentType.dress):
+        return Category.tops
+    if garment_type in (GarmentType.jacket, GarmentType.coat):
+        return Category.jackets
+    return Category.bottoms
+
+
 def main():
     images_dir = REPO_ROOT / "fixtures" / "images"
     files = sorted(images_dir.glob("*.png"))
@@ -40,11 +48,13 @@ def main():
     agree, total_scored = 0, 0
     check_totals: dict[str, list[bool]] = {}
     failures = []
+    mismatches = []
 
     # one discarded warmup run (V-Q6), to exclude cold MediaPipe init from latency numbers
     if files:
         try:
-            build_candidates(files[0].read_bytes(), infer_garment_type(files[0].name))
+            gtype0 = infer_garment_type(files[0].name)
+            build_candidates(files[0].read_bytes(), infer_category(gtype0), gtype0)
         except Exception:
             pass
 
@@ -52,15 +62,18 @@ def main():
         matches = HEX_RE.findall(f.name)
         true_hex = "#" + matches[-1].lower() if matches else None
         gtype = infer_garment_type(f.name)
+        category = infer_category(gtype)
         data = f.read_bytes()
         t0 = time.time()
         try:
-            candidates, multi_person = build_candidates(data, gtype)
+            candidates, multi_person, category_mismatch = build_candidates(data, category, gtype)
         except Exception as e:
             failures.append((f.name, str(e)))
             continue
         dt = time.time() - t0
         latencies.append(dt)
+        if category_mismatch:
+            mismatches.append(f.name)
 
         balanced = candidates[1]
         for name, ok in balanced["checks"].items():
@@ -91,6 +104,8 @@ def main():
     print("check pass rates (balanced candidate):")
     for name, results in check_totals.items():
         print(f"  {name:32} {sum(results)}/{len(results)}")
+    if mismatches:
+        print(f"category_mismatch flagged on {len(mismatches)}: {mismatches}")
 
 
 if __name__ == "__main__":

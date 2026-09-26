@@ -28,6 +28,7 @@ def main():
     t2 = time.time()
     print(f"image {rgb.shape} preprocess={t1 - t0:.2f}s segment={t2 - t1:.2f}s multi_person={result.multi_person}")
     print("region_box_px", result.region_box_px)
+    print(f"top_region_mass={result.top_region_mass} bottom_region_mass={result.bottom_region_mass}")
     masks = list(result.variants.items())
     for name, m in masks:
         print(f"  {name:9} coverage={m.mean():.1%} area_px={m.sum()}")

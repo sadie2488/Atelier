@@ -4,8 +4,17 @@ V-C2: primary is the largest cluster by pixel mass. V-C3: secondary is emitted w
 cluster holds >=20% of masked pixels and is >=dE2000 20 from the primary (largest by mass if
 several qualify). V-C4/V-C5: name/family/is_neutral/everyday_neutral via contract/colors.json,
 chroma-only for is_neutral.
+
+V6: sampling erodes the alpha mask by COLOR_SAMPLE_EROSION_PX first (falling back to the
+un-eroded mask if that would empty it). Diagnosed against fixtures/images: the cutout's edge is
+antialiased against whatever sits behind it (background, hair, skin), so a ring of blended-color
+pixels sits right at the boundary; on a small or thin cutout that ring is enough to seed its own
+k-means cluster. Eroding a couple of pixels before sampling drops that ring without touching the
+alpha channel actually shipped in the candidate (still "alpha > 0" per V-C2, just a stricter
+interior subset of it).
 """
 import numpy as np
+from scipy import ndimage
 from skimage.color import lab2rgb, rgb2lab
 from sklearn.cluster import KMeans
 
@@ -15,6 +24,7 @@ from contract.enums import (
 from contract.tools.color import delta_e2000, lab_to_lch, nearest_color
 
 from . import VisionError
+from .candidate_params import COLOR_SAMPLE_EROSION_PX
 
 _SAMPLE_PIXELS = 20000
 
@@ -50,6 +60,10 @@ def _make_color(lab_raw) -> dict:
 def extract_colors(rgba: np.ndarray, seed: int = 0) -> tuple[dict, dict | None]:
     """RGBA cutout -> (primary ExtractedColor dict, secondary dict or None)."""
     alpha = rgba[..., 3] > 0
+    if COLOR_SAMPLE_EROSION_PX > 0:
+        eroded = ndimage.binary_erosion(alpha, iterations=COLOR_SAMPLE_EROSION_PX)
+        if eroded.any():
+            alpha = eroded
     px = rgba[..., :3][alpha]
     if px.size == 0:
         raise VisionError(ErrorCode.analyze_failed, "Cutout has no opaque pixels to extract color from.")

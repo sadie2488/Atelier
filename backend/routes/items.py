@@ -86,7 +86,7 @@ async def analyze(
     data = await image.read()
 
     try:
-        candidates, multi_person = build_candidates(data, form.garment_type)
+        candidates, multi_person, category_mismatch = build_candidates(data, form.category, form.garment_type)
     except VisionError as e:
         return _error(e.code, e.message)
     except Exception as e:  # segmentation/color raised unexpectedly -- never a silent fallback
@@ -132,6 +132,14 @@ async def analyze(
         log_failure({
             "event": "multi_person", "temp_handle": handle, "category": form.category.value,
             "retailer_color": form.color, "timestamp": _now_iso(),
+        })
+
+    if category_mismatch:
+        # V-S7: trust the user's category and proceed regardless -- this is a log-only signal.
+        log_failure({
+            "event": "category_mismatch", "temp_handle": handle, "category": form.category.value,
+            "garment_type": form.garment_type.value, "retailer_color": form.color,
+            "timestamp": _now_iso(),
         })
 
     return AnalyzeResponse(temp_handle=handle, candidates=api_candidates)

@@ -25,6 +25,12 @@ REGION_PAD_FRACTION = 0.12
 # ARTIFACT_SPEC: crop to alpha bbox plus this padding fraction on every side.
 CROP_PAD_FRACTION = 0.02
 
+# V4/V6: pixels eroded off the alpha mask before k-means color sampling only (never applied to
+# the shipped cutout's own alpha) -- trims the antialiased background/skin/hair blend ring right
+# at the cutout boundary before it can seed its own cluster. Tuned against fixtures/images on
+# 2026-09-26 (see backend/vision/scripts/eval_fixtures.py); re-tune once golden references exist.
+COLOR_SAMPLE_EROSION_PX = 2
+
 # Minimum soft-segmentation confidence to count a pixel as belonging to the chosen person
 # (V-S6: largest person by mask area). Unused since pose-landmarker segmentation masks are not
 # requested (see mp_models.pose_landmarker's docstring); kept for when that mediapipe bug is fixed.

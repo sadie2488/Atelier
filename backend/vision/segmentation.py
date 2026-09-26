@@ -11,6 +11,20 @@ V-S6: with more than one person in frame, take the largest and log `multi_person
 does the logging; this module just reports `multi_person`). "Largest" is approximated by
 landmark bounding-box area rather than segmentation mask area -- see mp_models.pose_landmarker
 for why (a mediapipe/Windows bug in PoseLandmarker's own mask output, not a design choice).
+
+V-S7 (mismatch signal): `top_region_mass`/`bottom_region_mass` are the clothes-category pixel
+counts inside the two canonical shoulder-to-hip / hip-to-ankle boxes, computed independently of
+`garment_type`. The caller (ingest.build_candidates) compares these against the user's declared
+category -- this module only reports the two masses.
+
+V6: `base` (clothes-category ∩ pose-region ∩ largest-person) is restricted to its largest
+connected component before the per-variant erosion/dilation. Diagnosed against fixtures/images
+via backend/vision/scripts/eval_fixtures.py: several color-family misses on the balanced
+candidate came from a second, smaller "clothes" blob touching the frame edge inside the padded
+region box -- a strip of jeans below a cropped top (the hip landmark sits below a fitted top's
+hem, so REGION_PAD_FRACTION still reaches the waistband), or a belt at the hip -- which pulled a
+k-means cluster toward that blob's color. Keeping only the largest component removes these
+without any color thresholding.
 """
 from dataclasses import dataclass
 
@@ -63,6 +77,8 @@ class SegmentationResult:
     multi_person: bool
     skin_mask: np.ndarray                          # V-S1: MediaPipe body-skin | face-skin categories
     independent_extent_mask: np.ndarray            # V-S2: pose region & non-background, pre-skin-exclusion
+    top_region_mass: int                           # V-S7: clothes px in the canonical shoulder-hip box
+    bottom_region_mass: int                        # V-S7: clothes px in the canonical hip-ankle box
 
 
 def _landmark_dict(pose_landmarks, w: int, h: int) -> dict[str, tuple[float, float]]:
@@ -98,6 +114,19 @@ def _morph(mask: np.ndarray, radius_px: int) -> np.ndarray:
     return ndimage.binary_fill_holes(out)
 
 
+def _largest_component(mask: np.ndarray) -> np.ndarray:
+    """Keep only the largest 4-connected component. V6: drops smaller disconnected `clothes`
+    blobs (a strip of a second garment, a belt, a stray misclassified patch) that would
+    otherwise skew k-means color extraction (V-C2) toward a color the target garment doesn't
+    actually have. Returns an all-False mask unchanged (nothing to filter)."""
+    labeled, n = ndimage.label(mask)
+    if n <= 1:
+        return mask
+    counts = np.bincount(labeled.ravel())
+    counts[0] = 0
+    return labeled == int(np.argmax(counts))
+
+
 def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
     import mediapipe as mp
 
@@ -125,6 +154,13 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
     points = all_points[chosen]
     region_names = _REGION_LANDMARKS[garment_type]
     box = _region_box(points, region_names, w, h)
+    if box[2] <= box[0] or box[3] <= box[1]:
+        # V6: a tight product-photo crop (e.g. waist-to-mid-thigh only) can leave BlazePose with
+        # near-zero presence for the landmarks a pose region needs (hip/knee/ankle extrapolated
+        # far below the frame -- confirmed by probe against fixtures/images), which inverts
+        # min/max into a degenerate box. There is no usable pose constraint in that case, so fall
+        # back to the whole frame; `clothes` category still excludes background/skin/hair.
+        box = (0.0, 0.0, float(w), float(h))
     region_mask = _box_mask(box, w, h)
 
     seg_result = image_segmenter().segment(mp_image)
@@ -135,15 +171,36 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
     skin_mask = (category == CATEGORY_BODY_SKIN) | (category == CATEGORY_FACE_SKIN)
     non_background = category != CATEGORY_BACKGROUND
 
-    base = clothes & region_mask
+    base = _largest_component(clothes & region_mask)
 
-    variants = {name: _morph(base, radius) for name, radius in CANDIDATE_MORPH_RADIUS_PX.items()}
+    variants: dict[str, np.ndarray] = {}
+    for name, radius in CANDIDATE_MORPH_RADIUS_PX.items():
+        m = _morph(base, radius)
+        # V6: an erosion radius can hollow out a small/thin garment to nothing (e.g. the
+        # "tight" variant on a short pair of shorts). Step back toward radius 0 rather than
+        # handing build_cutout an empty mask -- a genuine no-garment case still fails, just
+        # later, when even the unmorphed `base` is empty.
+        r = radius
+        while not m.any() and r < 0:
+            r += 1
+            m = _morph(base, r)
+        variants[name] = m
 
     # V-S2: independent extent for the completeness check -- pose region intersected with the
     # non-background signal, computed before skin exclusion, and never derived from `variants`.
     independent_extent_mask = region_mask & non_background
 
+    # V-S7: canonical top/bottom spans, independent of garment_type, to let the caller flag a
+    # declared category that disagrees with what's actually in frame. Reuses the shirt (shoulder-
+    # hip) and pants (hip-ankle) landmark sets as the two canonical halves -- cheap, no extra
+    # model pass, since `clothes`/`points` are already computed above.
+    top_box = _region_box(points, _REGION_LANDMARKS[GarmentType.shirt], w, h)
+    bottom_box = _region_box(points, _REGION_LANDMARKS[GarmentType.pants], w, h)
+    top_region_mass = int((clothes & _box_mask(top_box, w, h)).sum())
+    bottom_region_mass = int((clothes & _box_mask(bottom_box, w, h)).sum())
+
     return SegmentationResult(
         landmarks_px=points, region_box_px=box, variants=variants, multi_person=multi_person,
         skin_mask=skin_mask, independent_extent_mask=independent_extent_mask,
+        top_region_mass=top_region_mass, bottom_region_mass=bottom_region_mass,
     )

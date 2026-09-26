@@ -16,10 +16,14 @@ from pathlib import Path
 
 import pytest
 
+import numpy as np
+
 from backend import config
 from backend.db import get_db
 from backend.main import app
+from backend.vision.checks import _left_right_balance_ok, _no_straight_boundary_run
 from backend.vision.session import TMP_MEDIA_DIR, delete_session
+from contract.enums import Category
 from contract.schemas import AnalyzeResponse, ErrorResponse, Item, ItemListResponse
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "images"
@@ -217,6 +221,44 @@ def test_get_unknown_item_is_not_found(client, fake_db):
     assert resp.status_code == 404
     err = ErrorResponse.model_validate(resp.json())
     assert err.error.code.value == "not_found"
+
+
+# --------------------------------------------------------------------------------- V-Q2 checks
+
+def test_no_straight_boundary_run_flags_a_hard_edge_cut():
+    # A perfect rectangle has a flat top/bottom edge the full canvas width -- an axis-aligned
+    # box cut, exactly what this check exists to catch.
+    mask = np.zeros((50, 50), dtype=bool)
+    mask[10:40, :] = True
+    assert _no_straight_boundary_run(mask) is False
+
+
+def test_no_straight_boundary_run_passes_a_diamond():
+    # A diamond's boundary moves by one column every row: no flat run anywhere near 15% of
+    # the canvas width (50 * 0.15 = 7.5).
+    n = 50
+    mask = np.zeros((n, n), dtype=bool)
+    c = n // 2
+    for y in range(n):
+        half = c - abs(y - c)
+        if half > 0:
+            mask[y, c - half:c + half] = True
+    assert _no_straight_boundary_run(mask) is True
+
+
+def test_left_right_balance_flags_lopsided_tops_and_bottoms_only():
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[:, :3] = True   # all mass on the left third; nothing on the right half at all
+    assert _left_right_balance_ok(mask, Category.tops) is False
+    assert _left_right_balance_ok(mask, Category.bottoms) is False
+    # Jackets are legitimately asymmetric (open front, angled shot) -- not checked.
+    assert _left_right_balance_ok(mask, Category.jackets) is True
+
+
+def test_left_right_balance_passes_a_symmetric_mask():
+    mask = np.zeros((10, 10), dtype=bool)
+    mask[:, 2:8] = True   # centered, even split
+    assert _left_right_balance_ok(mask, Category.tops) is True
 
 
 def test_list_items_newest_first(client, fake_db):
