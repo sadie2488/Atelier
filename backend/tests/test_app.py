@@ -16,7 +16,9 @@ def test_health(client):
 @pytest.mark.parametrize("method,path", [(m, p) for m, p, *_ in ENDPOINTS if p != "/health"])
 def test_endpoint_is_routed(client, method, path):
     resp = client.request(method, _url(path))
-    assert resp.status_code != 404 and resp.status_code != 405, f"{method} {path} not routed"
+    assert resp.status_code != 405, f"{method} {path} not routed"
+    if resp.status_code == 404:  # a routed "no such id" carries its own message; an unrouted path gets Starlette's
+        assert resp.json()["error"]["message"] != "Not Found", f"{method} {path} not routed"
     if resp.status_code >= 400:
         ErrorResponse.model_validate(resp.json())
 

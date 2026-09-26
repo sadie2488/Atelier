@@ -19,11 +19,61 @@ def _load(name: str):
     return json.loads((CONTRACT_FIXTURES / name).read_text())
 
 
+class FakeCursor(list):
+    def sort(self, key, direction=1):
+        super().sort(key=lambda d: d.get(key), reverse=direction < 0)
+        return self
+
+    def limit(self, n):
+        return FakeCursor(self[:n]) if n else self
+
+
+class FakeCollection:
+    """Just enough of pymongo's Collection for route tests: equality filters only."""
+
+    def __init__(self):
+        self.docs: list[dict] = []
+
+    def _match(self, doc, flt):
+        return all(doc.get(k) == v for k, v in (flt or {}).items())
+
+    def find(self, flt=None, projection=None):
+        return FakeCursor(dict(d) for d in self.docs if self._match(d, flt))
+
+    def find_one(self, flt=None, projection=None):
+        return next((dict(d) for d in self.docs if self._match(d, flt)), None)
+
+    def insert_one(self, doc):
+        self.docs.append(dict(doc))
+
+    def count_documents(self, flt=None):
+        return sum(self._match(d, flt) for d in self.docs)
+
+    def delete_many(self, flt=None):
+        self.docs = [d for d in self.docs if not self._match(d, flt)]
+
+
+class FakeDB(dict):
+    def __missing__(self, name):
+        self[name] = FakeCollection()
+        return self[name]
+
+
 @pytest.fixture
-def client(monkeypatch):
+def memory_db():
+    return FakeDB()
+
+
+@pytest.fixture
+def client(monkeypatch, memory_db):
+    """App client wired to an in-memory database: tests never touch MongoDB."""
     monkeypatch.setattr(db, "ping", lambda: True)
-    with TestClient(app) as c:
-        yield c
+    app.dependency_overrides[db.get_db] = lambda: memory_db
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(db.get_db, None)
 
 
 @pytest.fixture
