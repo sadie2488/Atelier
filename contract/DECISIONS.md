@@ -90,6 +90,9 @@ supplies `everyday_neutral` only.
 `retail_aliases`, then compare `family` against the extracted primary's family. Bar: ≥16/20.
 Strings resolving to `unmapped` are excluded from the denominator, not counted as failures.
 This is a mask-quality signal, not a gate — a failure is reported, never blocking.
+**Measurement (human decision, 2026-09-26):** fixture labels name the color the owner
+registered — on striped or two-tone garments that is the accent, not the larger base. A hit is
+the labelled family matching the extracted primary **or** secondary color.
 
 **V-C7 — Denim caveat.** `denim` and `blue` sit close in Lab and will misassign at the
 boundary. This is accepted. If agreement failures cluster on denim items, report to the PM
