@@ -1,0 +1,64 @@
+{
+  "_meta": {
+    "purpose": "Single source of truth for mapping numeric colors to basic named colors. Read by the vision lane (naming extracted colors, everyday-neutral flag, retailer color agreement check) and the styling lane (harmony families, neutral rules).",
+    "owner": "PM. Read-only to all lane subagents.",
+    "frozen_with": "contract/FROZEN",
+    "color_space": "CIELAB (D65, 2-degree observer). All values L*, a*, b*.",
+    "assignment_rule": "Nearest center by CIEDE2000. If the nearest center exceeds max_assignment_delta_e, name resolves to 'unmapped' and the numeric value is still stored and scored.",
+    "max_assignment_delta_e": 25,
+    "is_neutral_note": "is_neutral is NEVER read from this file. It is computed numerically from chroma per contract. This table sets everyday_neutral only. If a name lookup and the chroma computation disagree, the chroma computation wins.",
+    "calibration_warning": "These centers are starting values. They MUST be validated against the 20-image fixture set before the styling lane's 12 expectations are re-verified. Once those expectations are re-verified, changing any center invalidates them and requires re-verification."
+  },
+
+  "colors": [
+    { "name": "black",       "lab": [15, 0, 0],     "family": "achromatic", "everyday_neutral": false },
+    { "name": "charcoal",    "lab": [32, 0, 0],     "family": "achromatic", "everyday_neutral": false },
+    { "name": "gray",        "lab": [55, 0, 0],     "family": "achromatic", "everyday_neutral": false },
+    { "name": "light_gray",  "lab": [78, 0, 0],     "family": "achromatic", "everyday_neutral": false },
+    { "name": "white",       "lab": [95, 0, 0],     "family": "achromatic", "everyday_neutral": false },
+
+    { "name": "cream",       "lab": [93, 1, 10],    "family": "warm_light", "everyday_neutral": false },
+    { "name": "beige",       "lab": [80, 4, 16],    "family": "warm_light", "everyday_neutral": true  },
+    { "name": "tan",         "lab": [68, 8, 24],    "family": "warm_light", "everyday_neutral": false },
+    { "name": "camel",       "lab": [62, 10, 30],   "family": "warm_light", "everyday_neutral": true  },
+    { "name": "brown",       "lab": [40, 12, 22],   "family": "warm_dark",  "everyday_neutral": true  },
+
+    { "name": "olive",       "lab": [48, -6, 30],   "family": "green",      "everyday_neutral": true  },
+    { "name": "green",       "lab": [48, -40, 30],  "family": "green",      "everyday_neutral": false },
+    { "name": "teal",        "lab": [50, -25, -8],  "family": "blue_green", "everyday_neutral": false },
+
+    { "name": "navy",        "lab": [22, 6, -28],   "family": "blue",       "everyday_neutral": true  },
+    { "name": "denim",       "lab": [45, -3, -20],  "family": "blue",       "everyday_neutral": true  },
+    { "name": "blue",        "lab": [45, 5, -45],   "family": "blue",       "everyday_neutral": false },
+    { "name": "light_blue",  "lab": [75, -5, -18],  "family": "blue",       "everyday_neutral": false },
+
+    { "name": "purple",      "lab": [40, 40, -35],  "family": "purple",     "everyday_neutral": false },
+    { "name": "pink",        "lab": [75, 30, 5],    "family": "red",        "everyday_neutral": false },
+    { "name": "red",         "lab": [45, 60, 40],   "family": "red",        "everyday_neutral": false },
+    { "name": "burgundy",    "lab": [28, 35, 15],   "family": "red",        "everyday_neutral": false },
+
+    { "name": "orange",      "lab": [65, 40, 60],   "family": "orange",     "everyday_neutral": false },
+    { "name": "yellow",      "lab": [88, -5, 80],   "family": "yellow",     "everyday_neutral": false }
+  ],
+
+  "retail_aliases": {
+    "_note": "Retailer color strings resolve to a basic name for the vision lane's mask sanity check (family agreement >= 16/20). Matching is case-insensitive, whitespace and hyphens normalized. Unlisted strings resolve to 'unmapped' and are excluded from the agreement denominator, not counted as failures.",
+
+    "ecru": "cream", "ivory": "cream", "bone": "cream", "oatmeal": "cream", "eggshell": "cream",
+    "sand": "beige", "taupe": "beige", "khaki": "tan", "biscuit": "tan",
+    "cognac": "brown", "espresso": "brown", "chocolate": "brown", "mocha": "brown",
+    "stone": "light_gray", "slate": "gray", "heather_gray": "gray", "heather_grey": "gray", "grey": "gray",
+    "midnight": "navy", "indigo": "navy", "ink": "navy",
+    "chambray": "denim", "washed_blue": "denim",
+    "cobalt": "blue", "royal": "blue", "royal_blue": "blue",
+    "sky": "light_blue", "powder_blue": "light_blue",
+    "sage": "olive", "moss": "olive", "army": "olive", "fatigue": "olive",
+    "forest": "green", "emerald": "green", "kelly": "green", "hunter": "green",
+    "mustard": "yellow", "gold": "yellow", "butter": "yellow",
+    "rust": "orange", "terracotta": "orange", "apricot": "orange",
+    "blush": "pink", "dusty_rose": "pink", "rose": "pink", "mauve": "purple",
+    "wine": "burgundy", "maroon": "burgundy", "oxblood": "burgundy", "merlot": "burgundy",
+    "plum": "purple", "lavender": "purple", "lilac": "purple",
+    "crimson": "red", "cherry": "red", "brick": "red"
+  }
+}
