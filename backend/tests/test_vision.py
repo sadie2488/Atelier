@@ -507,3 +507,18 @@ def test_flatlay_no_alpha_keeps_garment_whole():
     assert iou > 0.95
     assert bal[180:200, 140:160].all()
     assert (gen | bal).sum() == gen.sum() and (tight & bal).sum() == tight.sum()
+
+
+def test_demo_reset_restores_baseline(client, memory_db, monkeypatch, tmp_path):
+    import json
+    from pathlib import Path
+    from backend.routes import demo
+    fx = Path(__file__).resolve().parents[2] / "contract" / "fixtures" / "api" / "get_items_detail.response.json"
+    base = json.loads(fx.read_text(encoding="utf-8"))
+    keep, extra, archived = dict(base), dict(base, id=base["id"][:-1] + "x"), dict(base, id=base["id"][:-1] + "y")
+    bl = tmp_path / "baseline.json"; bl.write_text(json.dumps({"items": [keep["id"], archived["id"]]}))
+    monkeypatch.setattr(demo, "BASELINE_FILE", bl)
+    memory_db["items"].insert_one(keep); memory_db["items"].insert_one(extra); memory_db["items_archive"].insert_one(archived)
+    assert client.post("/api/demo/reset?key=wrong").status_code == 404
+    r = client.post(f"/api/demo/reset?key={demo.RESET_KEY}").json()
+    assert r["archived"] == [extra["id"]] and r["restored"] == [archived["id"]] and r["items"] == 2
