@@ -15,28 +15,51 @@ OUTFITS_MAX_SHARING_GARMENT = OUTFITS_MAX_SHARING_GARMENT
 
 # ---- pairwise color-harmony scoring (scorer.py), all scores in [0, 1]
 
-# Either piece is a strict neutral (chroma < NEUTRAL_CHROMA_MAX, contract V-C5): neutrals
-# pair with everything, so this is a high, flat score regardless of the partner's hue.
+# Either piece is a strict neutral (chroma < NEUTRAL_CHROMA_MAX, contract V-C5) paired with a
+# true chromatic partner (not itself an everyday-neutral base): neutrals pair with everything,
+# so this is a high, flat score regardless of the partner's hue (E1/E2/E3).
 NEUTRAL_PAIR_SCORE = 0.90
+
+# A strict neutral paired with an everyday-neutral BASE color (navy/denim/olive/camel/beige/
+# brown/black-ish muted tones) instead of a true chromatic: both pieces read as "neutral", so
+# this is safe but only as interesting as its lightness contrast -- human ratings show flat,
+# similar-L* pairs (cream+beige, brown+black) as middling (~0.5, E9/E11) while big-L*-spread
+# pairs (navy+white, denim+white) read as high as a neutral+chromatic pair (E1/E3). Score
+# ramps from NEUTRAL_LOW_CONTRAST_SCORE up to NEUTRAL_PAIR_SCORE as |L*a - L*b| grows from
+# NEUTRAL_LOW_CONTRAST_L_MIN to NEUTRAL_LOW_CONTRAST_L_MAX.
+NEUTRAL_LOW_CONTRAST_SCORE = 0.50
+NEUTRAL_LOW_CONTRAST_L_MIN = 30.0
+NEUTRAL_LOW_CONTRAST_L_MAX = 45.0
 
 # Same color family (contract/colors.json), different lightness: a monochrome-leaning pair.
 # Score rises toward MONOCHROME_BASE + MONOCHROME_L_BONUS as the L* spread grows, capped at
-# MONOCHROME_L_SPREAD_TARGET (S-S2 rung 4 uses the same "L* spread >= 20" idea).
-MONOCHROME_BASE = 0.75
-MONOCHROME_L_BONUS = 0.20
-MONOCHROME_L_SPREAD_TARGET = 20.0
+# MONOCHROME_L_SPREAD_TARGET. Human ratings on tonal same-family pairs (light_blue+navy,
+# pink+red, E8/E12) put these solidly in the middle -- pleasant but flat, well below a
+# genuine harmony match -- so the base and cap are lower than earlier tonal-pair guesses.
+MONOCHROME_BASE = 0.40
+MONOCHROME_L_BONUS = 0.30
+MONOCHROME_L_SPREAD_TARGET = 60.0
 
 # Analogous: hue angle <= 40 degrees apart (S-S2 rung 3). Score falls off mildly with angle.
 HUE_ANALOGOUS_MAX_DEG = 40.0
 ANALOGOUS_BASE_SCORE = 0.80
 ANALOGOUS_HUE_PENALTY = 0.30
 
-# Complementary: hue angle 150-210 degrees apart, at least one piece low-chroma (S-S2 rung 3).
-HUE_COMPLEMENTARY_MIN_DEG = 150.0
+# Complementary: hue angle 137-210 degrees apart, at least one piece low-chroma (S-S2 rung 3).
+# The lower bound was widened from 150 to 137 (numerically, from the fixture colors' actual
+# LCH hue angles, never from names -- S-C2): human ratings show hue-diff a strong predictor
+# of a bright complementary pair's likability once past ~137 degrees apart -- blue+orange at
+# ~140 degrees works (E7), while purple+yellow at ~135 and red+green at ~109 (further from
+# complementary) read as costume-y (E6/E10) and stay in the lower default-scored band below.
+HUE_COMPLEMENTARY_MIN_DEG = 137.0
 HUE_COMPLEMENTARY_MAX_DEG = 210.0
 COMPLEMENTARY_LOW_CHROMA_MAX = 20.0
 COMPLEMENTARY_SCORE = 0.85
-COMPLEMENTARY_HIGH_CHROMA_PENALTY = 0.6  # multiplier when neither piece is low-chroma
+# Multiplier when neither piece is low-chroma (both pieces bright/saturated). Raised from 0.6
+# so a bright-but-genuinely-complementary pair (E4 camel+navy, E7 blue+orange) still lands
+# solidly above the "no relationship recognized" default, rather than being scored as poorly
+# as an unrelated hue pair.
+COMPLEMENTARY_HIGH_CHROMA_PENALTY = 0.88
 
 # Neither neutral, neither analogous/complementary, but one piece is an everyday-neutral
 # base color (navy/denim/olive/camel/beige/brown, contract/colors.json): still a reasonably

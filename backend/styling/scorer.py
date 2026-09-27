@@ -24,6 +24,15 @@ def hue_diff(h1: float, h2: float) -> float:
 def score_color_pair(a: dict, b: dict) -> float:
     """Harmony score in [0, 1] for two ExtractedColor-shaped dicts (S-C2)."""
     if a["is_neutral"] or b["is_neutral"]:
+        if a["everyday_neutral"] or b["everyday_neutral"]:
+            # Neutral + everyday-neutral-base (e.g. black+brown, cream+beige): both pieces
+            # read as "neutral", so it's safe but only as lively as its lightness contrast
+            # -- ramp from a middling flat-tonal score up to the full neutral-pair score as
+            # the L* gap widens (see weights.py for the human-rating evidence).
+            l_spread = abs(a["lch"][0] - b["lch"][0])
+            span = W.NEUTRAL_LOW_CONTRAST_L_MAX - W.NEUTRAL_LOW_CONTRAST_L_MIN
+            frac = min(max((l_spread - W.NEUTRAL_LOW_CONTRAST_L_MIN) / span, 0.0), 1.0)
+            return W.NEUTRAL_LOW_CONTRAST_SCORE + (W.NEUTRAL_PAIR_SCORE - W.NEUTRAL_LOW_CONTRAST_SCORE) * frac
         return W.NEUTRAL_PAIR_SCORE
 
     if a["family"] == b["family"]:

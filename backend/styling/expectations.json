@@ -1,0 +1,482 @@
+[
+  {
+    "id": "E1",
+    "a": {
+      "lab": [
+        22.0,
+        6.0,
+        -28.0
+      ],
+      "lch": [
+        22.0,
+        28.64,
+        282.09
+      ],
+      "hex": "#1b345e",
+      "name": "navy",
+      "family": "blue",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "b": {
+      "lab": [
+        95.0,
+        0.0,
+        0.0
+      ],
+      "lch": [
+        95.0,
+        0.0,
+        0.0
+      ],
+      "hex": "#f1f1f1",
+      "name": "white",
+      "family": "achromatic",
+      "is_neutral": true,
+      "everyday_neutral": false
+    },
+    "expected_score": 1.0,
+    "tolerance": 0.1,
+    "note": "navy + white: human rated 10/10 (classic navy and white), 2026-09-26"
+  },
+  {
+    "id": "E2",
+    "a": {
+      "lab": [
+        15.0,
+        0.0,
+        0.0
+      ],
+      "lch": [
+        15.0,
+        0.0,
+        0.0
+      ],
+      "hex": "#262626",
+      "name": "black",
+      "family": "achromatic",
+      "is_neutral": true,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        45.0,
+        60.0,
+        40.0
+      ],
+      "lch": [
+        45.0,
+        72.11,
+        33.69
+      ],
+      "hex": "#ca2d2b",
+      "name": "red",
+      "family": "red",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "expected_score": 1.0,
+    "tolerance": 0.1,
+    "note": "black + red: human rated 10/10 (high-contrast classic), 2026-09-26"
+  },
+  {
+    "id": "E3",
+    "a": {
+      "lab": [
+        45.0,
+        -3.0,
+        -20.0
+      ],
+      "lch": [
+        45.0,
+        20.22,
+        261.47
+      ],
+      "hex": "#4e6e8b",
+      "name": "denim",
+      "family": "blue",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "b": {
+      "lab": [
+        95.0,
+        0.0,
+        0.0
+      ],
+      "lch": [
+        95.0,
+        0.0,
+        0.0
+      ],
+      "hex": "#f1f1f1",
+      "name": "white",
+      "family": "achromatic",
+      "is_neutral": true,
+      "everyday_neutral": false
+    },
+    "expected_score": 1.0,
+    "tolerance": 0.1,
+    "note": "denim + white: human rated 10/10 (denim with white is a staple), 2026-09-26"
+  },
+  {
+    "id": "E4",
+    "a": {
+      "lab": [
+        62.0,
+        10.0,
+        30.0
+      ],
+      "lch": [
+        62.0,
+        31.62,
+        71.57
+      ],
+      "hex": "#b88e61",
+      "name": "camel",
+      "family": "warm_light",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "b": {
+      "lab": [
+        22.0,
+        6.0,
+        -28.0
+      ],
+      "lch": [
+        22.0,
+        28.64,
+        282.09
+      ],
+      "hex": "#1b345e",
+      "name": "navy",
+      "family": "blue",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "expected_score": 0.8,
+    "tolerance": 0.1,
+    "note": "camel + navy: human rated 8/10 (good everyday pairing, a notch below the classics), 2026-09-26"
+  },
+  {
+    "id": "E5",
+    "a": {
+      "lab": [
+        48.0,
+        -6.0,
+        30.0
+      ],
+      "lch": [
+        48.0,
+        30.59,
+        101.31
+      ],
+      "hex": "#79743e",
+      "name": "olive",
+      "family": "green",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "b": {
+      "lab": [
+        28.0,
+        35.0,
+        15.0
+      ],
+      "lch": [
+        28.0,
+        38.08,
+        23.2
+      ],
+      "hex": "#76272d",
+      "name": "burgundy",
+      "family": "red",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "expected_score": 0.7,
+    "tolerance": 0.1,
+    "note": "olive + burgundy: human rated 7/10 (rich earthy pairing), 2026-09-26"
+  },
+  {
+    "id": "E6",
+    "a": {
+      "lab": [
+        45.0,
+        60.0,
+        40.0
+      ],
+      "lch": [
+        45.0,
+        72.11,
+        33.69
+      ],
+      "hex": "#ca2d2b",
+      "name": "red",
+      "family": "red",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        48.0,
+        -40.0,
+        30.0
+      ],
+      "lch": [
+        48.0,
+        50.0,
+        143.13
+      ],
+      "hex": "#30813c",
+      "name": "green",
+      "family": "green",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "expected_score": 0.3,
+    "tolerance": 0.1,
+    "note": "red + green: human rated 3/10 (both bright: reads as costume), 2026-09-26"
+  },
+  {
+    "id": "E7",
+    "a": {
+      "lab": [
+        45.0,
+        5.0,
+        -45.0
+      ],
+      "lch": [
+        45.0,
+        45.28,
+        276.34
+      ],
+      "hex": "#276cb6",
+      "name": "blue",
+      "family": "blue",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        65.0,
+        40.0,
+        60.0
+      ],
+      "lch": [
+        65.0,
+        72.11,
+        56.31
+      ],
+      "hex": "#f37e2f",
+      "name": "orange",
+      "family": "orange",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "expected_score": 0.7,
+    "tolerance": 0.1,
+    "note": "blue + orange: human rated 7/10 (complementary, works), 2026-09-26"
+  },
+  {
+    "id": "E8",
+    "a": {
+      "lab": [
+        75.0,
+        -5.0,
+        -18.0
+      ],
+      "lch": [
+        75.0,
+        18.68,
+        254.48
+      ],
+      "hex": "#9bbdd9",
+      "name": "light_blue",
+      "family": "blue",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        22.0,
+        6.0,
+        -28.0
+      ],
+      "lch": [
+        22.0,
+        28.64,
+        282.09
+      ],
+      "hex": "#1b345e",
+      "name": "navy",
+      "family": "blue",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "expected_score": 0.6,
+    "tolerance": 0.1,
+    "note": "light_blue + navy: human rated 6/10 (tonal blues, fine but flat), 2026-09-26"
+  },
+  {
+    "id": "E9",
+    "a": {
+      "lab": [
+        40.0,
+        12.0,
+        22.0
+      ],
+      "lch": [
+        40.0,
+        25.06,
+        61.39
+      ],
+      "hex": "#7b563b",
+      "name": "brown",
+      "family": "warm_dark",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "b": {
+      "lab": [
+        15.0,
+        0.0,
+        0.0
+      ],
+      "lch": [
+        15.0,
+        0.0,
+        0.0
+      ],
+      "hex": "#262626",
+      "name": "black",
+      "family": "achromatic",
+      "is_neutral": true,
+      "everyday_neutral": false
+    },
+    "expected_score": 0.5,
+    "tolerance": 0.1,
+    "note": "brown + black: human rated 5/10 (middling), 2026-09-26"
+  },
+  {
+    "id": "E10",
+    "a": {
+      "lab": [
+        40.0,
+        40.0,
+        -35.0
+      ],
+      "lch": [
+        40.0,
+        53.15,
+        318.81
+      ],
+      "hex": "#824598",
+      "name": "purple",
+      "family": "purple",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        88.0,
+        -5.0,
+        80.0
+      ],
+      "lch": [
+        88.0,
+        80.16,
+        93.58
+      ],
+      "hex": "#fcdc31",
+      "name": "yellow",
+      "family": "yellow",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "expected_score": 0.4,
+    "tolerance": 0.1,
+    "note": "purple + yellow: human rated 4/10 (both bright: hard to wear), 2026-09-26"
+  },
+  {
+    "id": "E11",
+    "a": {
+      "lab": [
+        93.0,
+        1.0,
+        10.0
+      ],
+      "lch": [
+        93.0,
+        10.05,
+        84.29
+      ],
+      "hex": "#f5ead8",
+      "name": "cream",
+      "family": "warm_light",
+      "is_neutral": true,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        80.0,
+        4.0,
+        16.0
+      ],
+      "lch": [
+        80.0,
+        16.49,
+        75.96
+      ],
+      "hex": "#dac3a9",
+      "name": "beige",
+      "family": "warm_light",
+      "is_neutral": false,
+      "everyday_neutral": true
+    },
+    "expected_score": 0.5,
+    "tolerance": 0.1,
+    "note": "cream + beige: human rated 5/10 (tonal neutrals, safe but dull), 2026-09-26"
+  },
+  {
+    "id": "E12",
+    "a": {
+      "lab": [
+        75.0,
+        30.0,
+        5.0
+      ],
+      "lch": [
+        75.0,
+        30.41,
+        9.46
+      ],
+      "hex": "#f0a4b1",
+      "name": "pink",
+      "family": "red",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "b": {
+      "lab": [
+        45.0,
+        60.0,
+        40.0
+      ],
+      "lch": [
+        45.0,
+        72.11,
+        33.69
+      ],
+      "hex": "#ca2d2b",
+      "name": "red",
+      "family": "red",
+      "is_neutral": false,
+      "everyday_neutral": false
+    },
+    "expected_score": 0.5,
+    "tolerance": 0.1,
+    "note": "pink + red: human rated 5/10 (middling), 2026-09-26"
+  }
+]
