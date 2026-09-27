@@ -38,11 +38,12 @@ export function SavedOutfitsPanel({ outfits, byId, onPick, onRemove, onClose }: 
               const key = `${o.top_id}|${o.bottom_id}|${o.jacket_id ?? ""}`;
               return (
                 <li key={key} className="saved-card">
-                  <button type="button" className="saved-pick" onClick={() => onPick(o)} aria-label="Wear this saved outfit">
+                  <button type="button" className="saved-pick" onClick={() => onPick(o)} aria-label={`Wear ${o.name?.trim() || "this saved outfit"}`}>
                     <span className="saved-thumb">
                       {o.image_url ? <img src={o.image_url} alt="" /> : pieces.map((g) => <img key={g.id} src={g.cutout_url} alt="" className="saved-cut" />)}
                     </span>
                     <span className="saved-names">
+                      <span className="saved-title">{o.name?.trim() || "Untitled outfit"}</span>
                       <span>{name(top, "top")}</span>
                       <span>{name(bottom, "bottom")}</span>
                       {o.jacket_id ? <span>{name(jacket, "jacket")}</span> : <span className="saved-muted">no jacket</span>}

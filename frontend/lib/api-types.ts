@@ -81,6 +81,10 @@ export type BottomId = string;
 export type JacketId = string | null;
 export type Explanation = string;
 export type Score = number;
+/**
+ * 2.5.0: optional preset for POST /outfits/generate (never free text).
+ */
+export type OutfitStyle = "casual" | "going_out" | "business" | "monochrome";
 export type Limit = number;
 /**
  * @maxItems 5
@@ -121,7 +125,10 @@ export type ItemId1 = string;
 export type OutfitCount = number;
 export type TempHandle1 = string;
 export type Ok = true;
-export type Name1 = string;
+export type Name1 = string | null;
+export type Attributes1 = {
+  [k: string]: string;
+} | null;
 export type RenderId = string;
 export type RenderStatus = "pending" | "done" | "failed";
 export type LocalUrl = string;
@@ -151,6 +158,7 @@ export interface AtelierContract {
   Item?: Item;
   ItemListResponse?: ItemListResponse;
   Outfit?: Outfit;
+  OutfitStyle?: OutfitStyle;
   OutfitsGenerateRequest?: OutfitsGenerateRequest;
   OutfitsGenerateResponse?: OutfitsGenerateResponse;
   PaletteInsights?: PaletteInsights;
@@ -281,10 +289,12 @@ export interface Outfit {
   score: Score;
 }
 /**
- * POST /outfits/generate. The body may be {} (limit defaults to 5).
+ * POST /outfits/generate. The body may be {} (limit defaults to 5). 2.5.0 (additive): optional
+ * `style` preset; omitted or null means the usual random pick among the best outfits.
  */
 export interface OutfitsGenerateRequest {
   limit?: Limit;
+  style?: OutfitStyle | null;
 }
 /**
  * Up to 5 outfits, best first. Fewer (or none, for an unsatisfiable closet) is normal.
@@ -325,10 +335,14 @@ export interface RejectResponse {
   ok: Ok;
 }
 /**
- * PATCH /items/{slug}. Renames a saved item (sets retailer_item_name). 2.3.0, additive.
+ * PATCH /items/{slug}. Edits a saved item: its display name (retailer_item_name) and/or its
+ * free-form details (attributes). 2.3.0 added `name`; 2.4.0 (additive) made it optional and added
+ * `attributes`: merged into the stored map, any value is allowed (unknown words are fine), and an
+ * empty string removes that key. The id and all other stored data never change.
  */
 export interface RenameRequest {
-  name: Name1;
+  name?: Name1;
+  attributes?: Attributes1;
 }
 /**
  * POST /render and GET /render/{render_id}. local_url is always present and correct;

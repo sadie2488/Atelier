@@ -10,6 +10,7 @@ export type SavedOutfit = {
   image_url: string | null; // the Nano Banana try-on shown when saved, if any (relative URL)
   explanation: string | null;
   saved_at: string; // ISO timestamp
+  name?: string; // user-given name (older entries have none)
 };
 
 const KEY = "atelier:saved-outfits";

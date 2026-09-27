@@ -6,7 +6,7 @@ import { Button } from "@/components/Button";
 import { Plus, X } from "@/components/icons";
 import { Carousel, type Study } from "@/components/closet/Carousel";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { ApiError, CATEGORIES, renameItem, type Category, type ExtractedColor, type Item } from "@/lib/api";
+import { ApiError, CATEGORIES, updateItem, type Category, type ExtractedColor, type Item } from "@/lib/api";
 import { useIsMobile, useItems, useStoredAvatar } from "@/lib/hooks";
 import { clearStylistDefault, getStylistDefaults, setStylistDefault } from "@/lib/stylistDefaults";
 
@@ -32,10 +32,49 @@ const ATTRIBUTE_LABELS: [string, string][] = [
   ["length", "Length"], ["pattern", "Pattern"], ["closure", "Closure"], ["formality", "Formality"],
 ];
 
+// Keys offered for editing per category (plus any other keys the item already has).
+const EDIT_KEYS: Record<Category, string[]> = {
+  tops: ["subcategory", "sleeve", "neckline", "material", "fit", "pattern", "closure", "formality"],
+  bottoms: ["subcategory", "material", "length", "pattern", "closure", "formality"],
+  jackets: ["subcategory", "material", "length", "pattern", "closure", "formality"],
+};
+const LABEL_OF = Object.fromEntries(ATTRIBUTE_LABELS);
+const clean = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+const NA = "n/a";
+const OTHER = "__other";
+// Known options per detail (free text via "other..." is always allowed; every detail also offers n/a).
+const OPTIONS: Record<string, string[] | Record<Category, string[]>> = {
+  subcategory: {
+    tops: ["tank", "cami", "t-shirt", "shirt", "button-up shirt", "blouse", "sweater", "cardigan", "turtleneck", "hoodie", "dress", "slip dress"],
+    bottoms: ["jeans", "trousers", "shorts", "skirt", "sweatpants", "leggings"],
+    jackets: ["blazer", "coat", "overcoat", "moto jacket", "denim jacket", "utility jacket", "puffer", "cardigan"],
+  },
+  sleeve: ["sleeveless", "straps", "short sleeve", "3/4 sleeve", "long sleeve"],
+  neckline: ["crew neck", "v-neck", "scoop neck", "collar", "turtleneck", "square neck", "off-shoulder"],
+  material: ["cotton", "linen", "silk", "satin", "wool", "cashmere", "denim", "leather", "polyester", "knit"],
+  fit: ["tight", "regular", "loose"],
+  length: { tops: [], bottoms: ["thigh", "knee", "calf", "full"], jackets: ["cropped", "regular", "long"] },
+  pattern: ["solid", "striped", "plaid", "floral", "print", "textured"],
+  closure: ["none", "buttons", "zip", "snaps"],
+  formality: ["casual", "smart", "dressy"],
+};
+const optionsFor = (key: string, cat: Category): string[] => {
+  const o = OPTIONS[key];
+  return !o ? [] : Array.isArray(o) ? o : o[cat] ?? [];
+};
+const editKeys = (item: Item) => {
+  const base = EDIT_KEYS[item.category];
+  return ATTRIBUTE_LABELS.map(([k]) => k).filter((k) => base.includes(k) || clean(item.attributes?.[k]));
+};
+type Pick = { choice: string; other: string };
+const initialPick = (value: string, opts: string[]): Pick =>
+  !value || value === NA || opts.includes(value) ? { choice: value, other: "" } : { choice: OTHER, other: value };
+const pickValue = (p: Pick) => (p.choice === OTHER ? p.other.trim() : p.choice);
+
 function AttributeList({ attributes }: { attributes?: Item["attributes"] }) {
   const rows = ATTRIBUTE_LABELS.flatMap(([key, label]) => {
-    const value = attributes?.[key];
-    return typeof value === "string" && value.trim() ? [{ key, label, value: value.trim() }] : [];
+    const value = clean(attributes?.[key]);
+    return value ? [{ key, label, value }] : [];
   });
   if (!rows.length) return null;
   return (
@@ -76,7 +115,7 @@ function DefaultToggle({ item }: { item: Item }) {
   const label = isDefault ? "Default in stylist (press to remove)" : "Set as stylist default";
   return (
     <>
-      <button type="button" className={`rename-btn default-btn${isDefault ? " is-default" : ""}`} aria-pressed={isDefault} aria-label={label} title={label} onClick={toggle}>
+      <button type="button" className={`rename-btn media-btn media-btn--bl default-btn${isDefault ? " is-default" : ""}`} aria-pressed={isDefault} aria-label={label} title={label} onClick={toggle}>
         {isDefault ? <Check /> : <PlusIcon />}
       </button>
       {flash && <span className="default-flash" role="status">Shown first in the stylist</span>}
@@ -84,46 +123,97 @@ function DefaultToggle({ item }: { item: Item }) {
   );
 }
 
-// Inline rename: pencil on the left of the name; Enter/check saves, Esc/X cancels. The item id never changes.
-function DetailName({ item, onRenamed }: { item: Item; onRenamed: (updated: Item) => void }) {
-  const current = item.retailer_item_name ?? "";
+// Detail popup body. The pencil (image top-left) opens one edit mode for the name and every detail;
+// save sends the name (if changed) and the changed details in one PATCH. The item id never changes.
+function ItemDetail({ item, onSaved }: { item: Item; onSaved: (updated: Item) => void }) {
+  const currentName = item.retailer_item_name ?? "";
+  const keys = editKeys(item);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(current);
+  const [name, setName] = useState(currentName);
+  const [picks, setPicks] = useState<Record<string, Pick>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const trimmed = draft.trim();
 
-  const start = () => { setDraft(current); setError(null); setEditing(true); };
+  const start = () => {
+    setName(currentName);
+    setPicks(Object.fromEntries(keys.map((k) => [k, initialPick(clean(item.attributes?.[k]), optionsFor(k, item.category))])));
+    setError(null); setEditing(true);
+  };
   const cancel = () => { setEditing(false); setError(null); };
   const save = async () => {
-    if (!trimmed || saving) return;
-    if (trimmed === current) { setEditing(false); return; }
+    if (saving) return;
+    const patch: { name?: string; attributes?: Record<string, string> } = {};
+    const n = name.trim();
+    if (n && n !== currentName) patch.name = n;
+    const changed: Record<string, string> = {};
+    for (const k of keys) {
+      const p = picks[k];
+      if (!p || (p.choice === OTHER && !p.other.trim())) continue; // empty "other" = unchanged
+      const v = pickValue(p);
+      if (v !== clean(item.attributes?.[k])) changed[k] = v;
+    }
+    if (Object.keys(changed).length) patch.attributes = changed;
+    if (!patch.name && !patch.attributes) { setEditing(false); return; }
     setSaving(true); setError(null);
-    try { onRenamed(await renameItem(item.id, trimmed)); setEditing(false); }
-    catch (e) { setError(e instanceof ApiError && e.code !== "internal_error" ? e.message : "Couldn't rename this piece. The old name is kept."); }
+    try { onSaved(await updateItem(item.id, patch)); setEditing(false); }
+    catch (e) { setError(e instanceof ApiError && e.code !== "internal_error" ? e.message : "Couldn\u2019t save these changes. Nothing was changed."); }
     finally { setSaving(false); }
   };
+  const setPick = (k: string, p: Partial<Pick>) => setPicks((cur) => ({ ...cur, [k]: { ...(cur[k] ?? { choice: "", other: "" }), ...p } }));
 
-  if (!editing) {
-    return (
-      <div className="detail-name">
-        <button type="button" className="rename-btn" aria-label="Rename" onClick={start}><Pencil /></button>
-        <DefaultToggle key={item.id} item={item} />
-        <h2>{item.retailer_item_name ?? "Untitled piece"}</h2>
-      </div>
-    );
-  }
   return (
-    <div>
-      <form className="rename-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-        <input className="rename-input" aria-label="Garment name" value={draft} maxLength={80} autoFocus disabled={saving}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); cancel(); } }} />
-        <button type="submit" className="rename-btn" aria-label="Save name" disabled={!trimmed || saving}><Check /></button>
-        <button type="button" className="rename-btn" aria-label="Cancel rename" onClick={cancel} disabled={saving}><X size={16} strokeWidth={1.8} /></button>
-      </form>
-      {error && <p className="rename-error" role="status">{error}</p>}
-    </div>
+    <>
+      <div className="detail-media">
+        <img src={item.cutout_url} alt={item.retailer_item_name ?? item.garment_type} />
+        <button type="button" className="rename-btn media-btn media-btn--tl" aria-label={editing ? "Cancel editing" : "Edit garment"} aria-pressed={editing} title="Edit name and details" onClick={editing ? cancel : start}><Pencil /></button>
+        <DefaultToggle key={item.id} item={item} />
+      </div>
+      <div className="detail-info">
+        <p className="detail-kicker">{item.category} · {item.garment_type}</p>
+        {!editing ? (
+          <>
+            <div className="detail-name"><h2>{item.retailer_item_name ?? "Untitled piece"}</h2></div>
+            <AttributeList attributes={item.attributes} />
+          </>
+        ) : (
+          <form className="attr-block" onSubmit={(e) => { e.preventDefault(); void save(); }}
+            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); cancel(); } }}>
+            <input className="rename-input" aria-label="Garment name" value={name} maxLength={80} autoFocus disabled={saving} onChange={(e) => setName(e.target.value)} />
+            <div className="detail-attributes attr-form">
+              {keys.map((k) => {
+                const opts = optionsFor(k, item.category);
+                const p = picks[k] ?? { choice: "", other: "" };
+                return (
+                  <label key={k}><span>{LABEL_OF[k] ?? k}</span>
+                    <span className="attr-pick">
+                      <select className="attr-input" data-key={k} value={p.choice} disabled={saving} onChange={(e) => setPick(k, { choice: e.target.value })}>
+                        <option value="">{"\u2014"}</option>
+                        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+                        <option value={NA}>n/a</option>
+                        <option value={OTHER}>{"other\u2026"}</option>
+                      </select>
+                      {p.choice === OTHER && (
+                        <input className="attr-input" data-other={k} aria-label={`${LABEL_OF[k] ?? k} (other)`} placeholder="type a value" value={p.other} maxLength={60} disabled={saving}
+                          onChange={(e) => setPick(k, { other: e.target.value })} />
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="attr-actions">
+              <button type="submit" className="attr-edit-btn" disabled={saving || !name.trim()}><Check /> {saving ? "saving\u2026" : "save"}</button>
+              <button type="button" className="attr-edit-btn" onClick={cancel} disabled={saving}><X size={16} strokeWidth={1.8} /> cancel</button>
+            </div>
+            {error && <p className="rename-error" role="status">{error}</p>}
+          </form>
+        )}
+        <div className="color-compare">
+          <SwatchChip color={item.primary_color} label="extracted" />
+          {item.secondary_color && <SwatchChip color={item.secondary_color} label="secondary" />}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -208,16 +298,7 @@ export default function ClosetPage() {
         <div className="preview-backdrop" role="presentation" onClick={() => setDetail(null)}>
           <div className="detail-panel" role="dialog" aria-modal="true" aria-label="Item detail" onClick={(event) => event.stopPropagation()}>
             <Button variant="close" aria-label="Close" className="detail-close" onClick={() => setDetail(null)}><X size={20} strokeWidth={1.5} /></Button>
-            <img src={detail.cutout_url} alt={detail.retailer_item_name ?? detail.garment_type} />
-            <div className="detail-info">
-              <p className="detail-kicker">{detail.category} · {detail.garment_type}</p>
-              <DetailName key={detail.id} item={detail} onRenamed={(updated) => { setDetail(updated); itemsQ.refetch(); }} />
-              <AttributeList attributes={detail.attributes} />
-              <div className="color-compare">
-                <SwatchChip color={detail.primary_color} label="extracted" />
-                {detail.secondary_color && <SwatchChip color={detail.secondary_color} label="secondary" />}
-              </div>
-            </div>
+            <ItemDetail key={detail.id} item={detail} onSaved={(updated) => { setDetail(updated); itemsQ.refetch(); }} />
           </div>
         </div>
       )}

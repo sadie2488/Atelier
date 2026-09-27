@@ -2,11 +2,11 @@
 // Always relative paths: next.config.ts rewrites /api/* and /media/* to BACKEND_URL.
 import type {
   AnalyzeResponse, Avatar, AvatarScanResponse, Category, ErrorCode, ErrorResponse, ExtractedColor,
-  GarmentType, HealthResponse, Item, ItemListResponse, Outfit, OutfitsGenerateResponse,
+  GarmentType, HealthResponse, Item, ItemListResponse, Outfit, OutfitStyle, OutfitsGenerateResponse,
   PaletteInsights, RenameRequest, RenderJob, RenderRequest,
 } from "./api-types";
 
-export type { Avatar, Category, ExtractedColor, GarmentType, Item, Outfit, PaletteInsights, RenderJob };
+export type { Avatar, Category, ExtractedColor, GarmentType, Item, Outfit, OutfitStyle, PaletteInsights, RenderJob };
 export type Candidate = AnalyzeResponse["candidates"][number];
 
 export const CATEGORIES: Category[] = ["tops", "bottoms", "jackets"];
@@ -69,11 +69,13 @@ export async function analyzeItem(input: { image: Blob; category: Category; garm
 }
 
 export const saveItem = (temp_handle: string, candidate_index: number) => http<Item>("/items/save", json({ temp_handle, candidate_index }));
-export const renameItem = (id: string, name: string) =>
-  http<Item>(`/items/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name } satisfies RenameRequest) });
+// PATCH /items/{id}: rename and/or edit attributes (merged; "" removes a key). The id never changes.
+export const updateItem = (id: string, patch: { name?: string; attributes?: Record<string, string> }) =>
+  http<Item>(`/items/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch satisfies RenameRequest) });
+export const renameItem = (id: string, name: string) => updateItem(id, { name });
 export const rejectItem = (temp_handle: string) => http<{ ok: true }>("/items/reject", json({ temp_handle }));
-export async function generateOutfits(limit = 5): Promise<Outfit[]> {
-  return (await http<OutfitsGenerateResponse>("/outfits/generate", json({ limit }))).outfits;
+export async function generateOutfits(limit = 5, style?: OutfitStyle | null): Promise<Outfit[]> {
+  return (await http<OutfitsGenerateResponse>("/outfits/generate", json(style ? { limit, style } : { limit }))).outfits;
 }
 export const createRender = (req: RenderRequest) => http<RenderJob>("/render", json(req));
 export const getRender = (id: string) => http<RenderJob>(`/render/${encodeURIComponent(id)}`);

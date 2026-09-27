@@ -483,3 +483,83 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .default-flash { order: 10; flex: 1 0 100%; font: 500 12px var(--font-sans); color: var(--muted-foreground); }
 .detail-name:has(.default-flash) { flex-wrap: wrap; }
 .detail-name:has(.default-flash) h2 { flex: 1; }
+
+/* ---- closet: edit garment details ---- */
+.attr-block { display: grid; gap: 8px; }
+.attr-edit-btn { justify-self: start; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid color-mix(in oklab, var(--border) 80%, transparent); border-radius: 2px; background: none; color: var(--muted-foreground); font: 600 11px var(--font-sans); letter-spacing: .06em; cursor: pointer; }
+.attr-edit-btn:hover, .attr-edit-btn:focus-visible { color: var(--foreground); border-color: var(--primary); }
+.attr-edit-btn:disabled { opacity: .5; cursor: default; }
+.attr-form label { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.attr-form label > span { font: 600 11px var(--font-sans); letter-spacing: .06em; color: var(--muted-foreground); text-transform: uppercase; }
+.attr-input { min-width: 0; font: 400 14px/1.35 var(--font-sans); color: var(--foreground); background: transparent; border: 0; border-bottom: 1px solid var(--border); padding: 2px 0; outline: none; }
+.attr-input:focus { border-bottom-color: var(--foreground); }
+.attr-actions { display: flex; gap: 8px; }
+
+/* ---- stylist: mode picker, name prompt, jacket toggle row ---- */
+.style-modes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; max-width: 240px; }
+.style-chip { padding: 5px 9px; border: 1px solid color-mix(in oklab, var(--border) 80%, transparent); background: color-mix(in oklab, var(--background) 40%, transparent); color: var(--muted-foreground); font: 600 11px var(--font-sans); letter-spacing: .05em; cursor: pointer; border-radius: 999px; }
+.style-chip:hover { color: var(--foreground); }
+.style-chip.is-on { color: var(--background); background: var(--foreground); border-color: var(--foreground); }
+.style-chip:disabled { opacity: .6; cursor: default; }
+.save-name { display: grid; gap: 8px; max-width: 240px; }
+.save-name input { min-width: 0; font: 400 14px var(--font-sans); color: var(--foreground); background: color-mix(in oklab, var(--background) 60%, transparent); border: 0; border-bottom: 1px solid var(--foreground); padding: 6px 2px; outline: none; }
+.save-name-actions { display: flex; gap: 6px; }
+.save-name-actions .stylist-action { flex: 1; padding: 9px 12px; }
+.jacket-row { display: flex; justify-content: center; }
+.saved-title { font: 600 13px/1.3 var(--font-sans); color: var(--foreground); }
+@media (max-width: 700px) {
+  .style-modes, .save-name { max-width: none; width: 100%; }
+  .stylist-lists .jacket-row { align-self: center; }
+}
+.stylist-lists .jacket-block { flex-direction: column; align-items: center; gap: 8px; }
+/* ---- closet: edit + default buttons on the image corners ---- */
+.detail-media { position: relative; min-width: 0; }
+.detail-media > img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: contain; padding: 6%; box-sizing: border-box; }
+.media-btn { position: absolute; z-index: 2; left: 8px; background: color-mix(in oklab, var(--background) 82%, transparent); border: 1px solid color-mix(in oklab, var(--border) 90%, transparent); color: var(--foreground); backdrop-filter: blur(6px); }
+.media-btn:hover, .media-btn:focus-visible { background: var(--background); }
+.media-btn--tl { top: 8px; }
+.media-btn--bl { bottom: 8px; }
+.media-btn[aria-pressed="true"]:not(.default-btn) { border-color: var(--foreground); }
+.detail-media .default-flash { position: absolute; left: 46px; bottom: 14px; z-index: 2; padding: 2px 6px; background: color-mix(in oklab, var(--background) 85%, transparent); }
+.attr-pick { display: grid; gap: 4px; min-width: 0; }
+select.attr-input { cursor: pointer; }
+@media (max-width: 700px) { .detail-media > img { max-height: 40svh; } }
+/* ---- stylist: see outfit beside generate; bigger garments in the side lists ---- */
+.stylist-action-pair { display: flex; gap: 8px; }
+.stylist-action-pair .stylist-action { flex: 1; padding-inline: 14px; }
+.stylist-lists { gap: 10px; }
+.swipe-item { width: 140px; }
+.swipe-item img, .swipe-empty { width: 140px; height: 180px; }
+@media (max-height: 820px) and (min-width: 701px) {
+  .swipe-item { width: 120px; }
+  .swipe-item img, .swipe-empty { width: 120px; height: 150px; }
+}
+@media (max-width: 700px) {
+  .stylist-lists { gap: 2px; }
+  .swipe-item, .swipe-item img, .swipe-empty { width: 80px; }
+  .swipe-item img, .swipe-empty { height: 104px; }
+  .swipe-list { gap: 0; }
+  .swipe-list button { width: 18px; }
+  .stylist-action-pair { width: 100%; }
+}
+/* ---- stylist: bigger tap targets; one compact group centered on the page ---- */
+.stylist-page { --av-half: min(29.25svh, 337px); --col-gap: 40px; }
+.stylist-page .stylist-action { padding: 16px 26px; min-height: 50px; font-size: 15px; }
+.style-chip { padding: 10px 14px; min-height: 44px; font-size: 13px; }
+.style-modes { gap: 6px; max-width: 300px; }
+.jacket-toggle { padding: 12px 18px; min-height: 44px; font-size: 13px; }
+.save-name { max-width: 300px; }
+.save-name input { font-size: 16px; padding: 10px 2px; }
+@media (min-width: 701px) {
+  .stylist-page .stylist-lists { left: max(16px, calc(50% - var(--av-half) - var(--col-gap) - 216px)); }
+  .stylist-page .stylist-actions { right: max(16px, calc(50% - var(--av-half) - var(--col-gap) - 300px)); width: 300px; }
+}
+@media (min-width: 701px) and (max-width: 1100px) {
+  .stylist-page { --col-gap: 16px; }
+  .stylist-page .stylist-actions { width: 240px; right: max(16px, calc(50% - var(--av-half) - var(--col-gap) - 240px)); }
+}
+@media (max-width: 700px) {
+  .stylist-page .stylist-action { padding: 13px 18px; min-height: 48px; font-size: 14px; }
+  .style-chip { padding: 10px 12px; }
+  .style-modes, .save-name { max-width: none; }
+}

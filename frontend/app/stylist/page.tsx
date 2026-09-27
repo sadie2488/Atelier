@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { CATEGORIES, DEMO_OUTFITS, generateOutfits, type Category, type Item } from "@/lib/api";
+import { CATEGORIES, DEMO_OUTFITS, generateOutfits, type Category, type Item, type OutfitStyle } from "@/lib/api";
 import { useDemoToggle, useItems, useStoredAvatar } from "@/lib/hooks";
 import { RenderProgress } from "@/components/RenderProgress";
 import { useRender } from "@/lib/useRender";
@@ -23,6 +23,12 @@ const toFront = (list: Item[], id: string | null | undefined) => {
 // Plain-words label for a strategy code, e.g. "neutral_anchor" -> "neutral anchor".
 const strategyLabel = (strategy: string) => strategy.replace(/_/g, " ");
 
+// Generate modes: Random sends no style (current behavior); presets send `style`.
+const MODES: { value: OutfitStyle | null; label: string }[] = [
+  { value: null, label: "Random" }, { value: "casual", label: "Casual" }, { value: "going_out", label: "Going out" },
+  { value: "business", label: "Business" }, { value: "monochrome", label: "Monochrome" },
+];
+
 export default function StylistPage() {
   const avatar = useStoredAvatar();
   const itemsQ = useItems();
@@ -33,6 +39,8 @@ export default function StylistPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<"none" | "failed" | "render" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
+  const [mode, setMode] = useState<OutfitStyle | null>(null);
+  const [naming, setNaming] = useState<string | null>(null); // draft name while the save prompt is open
   const defaultsApplied = useRef(false);
   const saved = useSavedOutfits();
   const [savedOpen, setSavedOpen] = useState(false);
@@ -46,6 +54,7 @@ export default function StylistPage() {
   }, [savedFlash]);
   const demo = useDemoToggle();
   const plannedIdx = useRef(0); // next planned demo outfit (cycles)
+  const lastGen = useRef<string | null>(null); // combo key of the last generated outfit (its explanation applies)
   // Toggling the demo avatar restarts the planned sequence and drops the old explanation.
   useEffect(() => { plannedIdx.current = 0; setExplanation(null); setWhy(null); }, [demo.on]);
 
@@ -96,7 +105,7 @@ export default function StylistPage() {
     try {
       let pick: { top_id: string; bottom_id: string; jacket_id: string | null };
       let text: { explanation: string; strategy: string; score: number } | null = null;
-      if (demo.on && DEMO_OUTFITS.length) {
+      if (demo.on && DEMO_OUTFITS.length && !mode) {
         // Demo: planned outfits in order (cycling); explanation only if the generator returned the same combo.
         const plan = DEMO_OUTFITS[plannedIdx.current % DEMO_OUTFITS.length];
         plannedIdx.current += 1;
@@ -105,7 +114,7 @@ export default function StylistPage() {
         pick = { top_id: plan.top_id, bottom_id: plan.bottom_id, jacket_id: plan.jacket_id };
         if (hit) text = { explanation: hit.explanation, strategy: hit.strategy, score: hit.score };
       } else {
-        const outfits = await generateOutfits(5);
+        const outfits = await generateOutfits(5, mode);
         const best = outfits[0];
         if (!best) { setNotice("none"); return; }
         pick = { top_id: best.top_id, bottom_id: best.bottom_id, jacket_id: best.jacket_id ?? null };
@@ -120,6 +129,7 @@ export default function StylistPage() {
       setNoJacket(!pick.jacket_id);
       setExplanation(text?.explanation ?? null);
       setWhy(text ? { strategy: text.strategy, score: text.score } : null);
+      lastGen.current = `${pick.top_id}|${pick.bottom_id}|${pick.jacket_id ?? ""}`;
     } catch { setNotice("failed"); }
     finally { setBusy(false); }
   };
@@ -127,9 +137,26 @@ export default function StylistPage() {
   // The outfit currently on screen (what "save outfit" stores).
   const curTop = lists.tops[idx.tops ?? 0], curBottom = lists.bottoms[idx.bottoms ?? 0];
   const curJacket = noJacket ? undefined : lists.jackets[idx.jackets ?? 0];
+  // "see outfit": render exactly what the side lists show (same flow as generate; lists untouched, no /outfits/generate).
+  const seeOutfit = async () => {
+    if (!curTop || !curBottom || busy) return;
+    const jacketId = curJacket?.id ?? null;
+    setBusy(true); setNotice(null);
+    try {
+      const out = await requestRender(curTop.id, curBottom.id, jacketId, { keep: true });
+      if (!out.ok) { if (!out.aborted) setNotice("render"); return; }
+      commitView(out.view);
+      if (lastGen.current !== `${curTop.id}|${curBottom.id}|${jacketId ?? ""}`) { setExplanation(null); setWhy(null); }
+    } catch { setNotice("render"); }
+    finally { setBusy(false); }
+  };
+
+  const suggestName = () => [curTop?.retailer_item_name, curBottom?.retailer_item_name].filter(Boolean).join(" + ").slice(0, 40) || "My outfit";
   const saveCurrent = () => {
     if (!curTop || !curBottom) return;
-    if (saved.save({ top_id: curTop.id, bottom_id: curBottom.id, jacket_id: curJacket?.id ?? null, image_url: view?.generated ?? null, explanation })) setSavedFlash((n) => n + 1);
+    const name = (naming ?? "").trim() || suggestName();
+    if (saved.save({ top_id: curTop.id, bottom_id: curBottom.id, jacket_id: curJacket?.id ?? null, image_url: view?.generated ?? null, explanation, name })) setSavedFlash((n) => n + 1);
+    setNaming(null);
   };
 
   // Load a saved outfit: position the lists like generate does and show its saved try-on, if any.
@@ -156,7 +183,7 @@ export default function StylistPage() {
           const toggle = c === "jackets" && (
             <button type="button" className={`jacket-toggle${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => { setNoJacket((v) => !v); clearRender(); }}>{noJacket ? "with jacket" : "no jacket"}</button>
           );
-          if (c === "jackets" && noJacket) return <div className="jacket-block" key={c}>{toggle}</div>;
+          if (c === "jackets" && noJacket) return <div className="jacket-block" key={c}><div className="jacket-row">{toggle}</div></div>;
           const row = (
             <div className="swipe-list" key={c}>
               <button type="button" aria-label={`Previous ${c}`} onClick={() => swipe(c, -1)} disabled={lists[c].length < 2}><ChevronLeft size={18} /></button>
@@ -167,7 +194,7 @@ export default function StylistPage() {
               <button type="button" aria-label={`Next ${c}`} onClick={() => swipe(c, 1)} disabled={lists[c].length < 2}><ChevronRight size={18} /></button>
             </div>
           );
-          return toggle ? <div className="jacket-block" key={c}>{row}{toggle}</div> : row;
+          return toggle ? <div className="jacket-block" key={c}><div className="jacket-row">{toggle}</div>{row}</div> : row;
         })}
       </div>
 
@@ -188,10 +215,30 @@ export default function StylistPage() {
         {tooSmall ? (
           <div className="stylist-note"><p>Your closet needs at least a top and a bottom to build an outfit.</p><Link href="/add-item" className="stylist-action">add item</Link></div>
         ) : (
-          <button type="button" className="stylist-action" onClick={generate} disabled={busy}>{busy ? "styling…" : "generate outfit"}</button>
+          <>
+            <div className="style-modes" role="radiogroup" aria-label="Outfit mode">
+              {MODES.map((m) => (
+                <button key={m.label} type="button" role="radio" aria-checked={mode === m.value} className={`style-chip${mode === m.value ? " is-on" : ""}`} disabled={busy} onClick={() => setMode(m.value)}>{m.label}</button>
+              ))}
+            </div>
+            <div className="stylist-action-pair">
+              <button type="button" className="stylist-action" onClick={generate} disabled={busy}>{busy ? "styling…" : "generate outfit"}</button>
+              <button type="button" className="stylist-action" onClick={seeOutfit} disabled={busy || !curTop || !curBottom}>see outfit</button>
+            </div>
+          </>
         )}
-        {!tooSmall && <button type="button" className="stylist-action" onClick={saveCurrent} disabled={busy || !curTop || !curBottom}>{savedFlash ? "saved" : "save outfit"}</button>}
-        <button type="button" className="stylist-action" onClick={() => setSavedOpen(true)}>saved outfits{saved.outfits.length ? ` (${saved.outfits.length})` : ""}</button>
+        {!tooSmall && naming === null && <button type="button" className="stylist-action" onClick={() => setNaming(suggestName())} disabled={busy || !curTop || !curBottom}>{savedFlash ? "saved" : "save outfit"}</button>}
+        {!tooSmall && naming !== null && (
+          <form className="save-name" onSubmit={(e) => { e.preventDefault(); saveCurrent(); }}>
+            <input aria-label="Outfit name" value={naming} maxLength={40} autoFocus onChange={(e) => setNaming(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setNaming(null); }} />
+            <div className="save-name-actions">
+              <button type="submit" className="stylist-action">save</button>
+              <button type="button" className="stylist-action" onClick={() => setNaming(null)}>cancel</button>
+            </div>
+          </form>
+        )}
+        <button type="button" className="stylist-action" onClick={() => setSavedOpen(true)}>saved outfits</button>
         {notice === "none" && <p className="stylist-note">No good combinations from this closet yet. Add a few more pieces.</p>}
         {notice === "render" && <p className="stylist-note">Couldn&apos;t style this one just now. Generate again in a moment.</p>}
         {notice === "failed" && <p className="stylist-note">The stylist couldn&apos;t compose a look just now. Try again in a moment.</p>}
