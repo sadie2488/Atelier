@@ -164,6 +164,51 @@ CROP_PAD_FRACTION = 0.02
 # 2026-09-26 (see backend/vision/scripts/eval_fixtures.py); re-tune once golden references exist.
 COLOR_SAMPLE_EROSION_PX = 2
 
+# V2 isolation (tight waist-down crops, re-dispatch): even when the pose-derived region box is
+# well-formed (non-degenerate, tall enough per _MIN_BOTTOM_BOX_HEIGHT_FRAC), BlazePose can still
+# fit a full 33-point skeleton onto a hip-only or tight waist-down crop by HALLUCINATING a
+# plausible-looking leg pose that is spatially wrong -- the box ends up well-formed but placed
+# over the wrong part of the frame, or it's correctly placed but far too NARROW for a baggy/
+# wide-leg garment whose fabric extends well past the leg landmarks even with REGION_PAD's
+# generous pad_x. Ground-truth signal, independent of BlazePose's own (misleadingly high, in
+# exactly these cases) visibility/presence scores: the pose-derived box should contain MOST of
+# the `clothes`-category pixels visible anywhere in the frame, since these product photos show
+# one garment against a plain background. Tuned against fixtures/images on 2026-09-27: the five
+# bottoms this was diagnosed against (see backend/vision/segmentation.py's V2 module docstring --
+# bottom_62acf6, bottom_6a01d4, bottom_d7459a, bottom_dd2bea, bottom_f91783) had their
+# landmark-derived box capture only 2%-40% of the frame's `clothes` pixels; every other bottoms
+# fixture (already isolating correctly) captured 100% (its box already spans ~the whole frame,
+# either via the existing degenerate/too-short fallbacks above or a generously-padded full-length
+# pose). 0.5 sits with wide margin on both sides of that split.
+MIN_BOTTOM_REGION_CLOTHES_COVERAGE_FRAC = 0.5
+
+# V2 isolation (re-dispatch): in the pose-free bottoms fallback specifically (`segmentation.
+# segment`'s `elif is_bottom` branch), a non-anchor color cluster whose mass sits mostly ABOVE the
+# fallback core probe's own top edge (the waistband line) is dropped even if it would otherwise
+# pass the SAME_FABRIC/secondary-area-ratio tests in `_isolate_by_color` -- a cropped top garment
+# bleeding in from above the waistband is exactly what those two tests can't reliably catch on
+# their own (a white tank top and a pale/light-wash bottom can land within SAME_FABRIC_MAX_DELTA_E
+# of each other in Lab, since both are simply light and low-chroma). Confirmed against "livin it
+# up Stretch Curvy Low-Rise Perfect Shortie #99b3be.png": its white-tank cluster was only
+# deltaE=11.1 from the light-denim anchor (under SAME_FABRIC_MAX_DELTA_E=15, so kept by that test
+# alone) but had 80% of its own pixels above the waistband line, against 4-6% for the shorts'
+# three genuine clusters -- 0.5 sits with wide margin on both sides of that split. Only applied in
+# the pose-free fallback (not the landmark-trusted core-probe path used for tops/jackets/dresses,
+# where a collar or trim legitimately extends above the probe's own top edge as part of the SAME
+# garment).
+WAISTBAND_EXCLUDE_MAX_ABOVE_FRAC = 0.5
+
+# V2 isolation (re-dispatch): a candidate mask whose alpha fills more than this fraction of its
+# OWN bounding box is a sign the mask is just the region/crop box itself with no garment
+# silhouette carved out of it -- e.g. a hip-only crop where the entire visible frame is clothing,
+# so `clothes` fills the box wall-to-wall and the "cutout" is really a rectangle, not a garment
+# shape (confirmed on "blue daylight Next Level High-Waisted Shortie #849eb1.png": its pre-fix
+# balanced mask filled 95.1% of its own bbox). NOT a blanket completeness bar -- real,
+# correctly-isolated garments legitimately reach 88-91% bbox fill on some shorts fixtures -- only
+# a last-resort trigger, checked AFTER the coverage-ratio fix above already ran, to retry once
+# more with the pose-free whole-frame fallback (see `segmentation.segment`).
+RECTANGULAR_BBOX_FILL_MAX = 0.90
+
 # Minimum soft-segmentation confidence to count a pixel as belonging to the chosen person
 # (V-S6: largest person by mask area). Unused since pose-landmarker segmentation masks are not
 # requested (see mp_models.pose_landmarker's docstring); kept for when that mediapipe bug is fixed.

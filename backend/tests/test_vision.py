@@ -22,6 +22,7 @@ from backend import config
 from backend.db import get_db
 from backend.main import app
 from backend.vision.checks import _left_right_balance_ok, _no_straight_boundary_run
+from backend.vision.segmentation import _bbox_fill_ratio
 from backend.vision.session import delete_session, tmp_media_dir
 from contract.enums import Category
 from contract.schemas import AnalyzeResponse, ErrorResponse, Item, ItemListResponse
@@ -301,6 +302,32 @@ def test_left_right_balance_passes_a_symmetric_mask():
     mask = np.zeros((10, 10), dtype=bool)
     mask[:, 2:8] = True   # centered, even split
     assert _left_right_balance_ok(mask, Category.tops) is True
+
+
+# --------------------------------------------------------------------------------- V2 checks
+
+def test_bbox_fill_ratio_flags_a_rectangle_but_not_an_irregular_silhouette():
+    # V2 (tight waist-down crops, re-dispatch): a mask that fills its own bbox wall-to-wall is
+    # exactly the "the mask IS the region/crop box" failure mode -- no garment silhouette was
+    # actually carved out of it (see candidate_params.RECTANGULAR_BBOX_FILL_MAX's docstring).
+    rect = np.zeros((20, 20), dtype=bool)
+    rect[2:18, 2:18] = True
+    assert _bbox_fill_ratio(rect) == pytest.approx(1.0)
+
+    # A real garment silhouette (tapered, with corners cut away) never fills its own bbox
+    # completely -- a diamond is a clean stand-in.
+    n = 20
+    diamond = np.zeros((n, n), dtype=bool)
+    c = n // 2
+    for y in range(n):
+        half = c - abs(y - c)
+        if half > 0:
+            diamond[y, c - half:c + half] = True
+    assert _bbox_fill_ratio(diamond) < 0.9
+
+
+def test_bbox_fill_ratio_of_empty_mask_is_zero():
+    assert _bbox_fill_ratio(np.zeros((5, 5), dtype=bool)) == 0.0
 
 
 def test_list_items_newest_first(client, fake_db):
