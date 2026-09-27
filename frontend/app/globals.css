@@ -312,3 +312,10 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 @media (max-width: 700px) { .stylist-page { overflow-y: auto; height: 100svh; } }
 .countdown { position: absolute; inset: 0; display: grid; place-items: center; font: italic 400 clamp(96px, 30vw, 180px)/1 var(--font-display); color: var(--background); text-shadow: 0 4px 30px oklch(0.2 0.02 55 / 55%); pointer-events: none; animation: countdown-pop 1s ease-out infinite; }
 @keyframes countdown-pop { from { transform: scale(1.25); opacity: .3; } 30% { opacity: 1; } to { transform: scale(1); opacity: .9; } }
+
+/* Whole-body avatar: the template body canvas is 600x1200 (1:2). Fit by height and never crop. */
+.avatar-boundary-box, .stylist-avatar-box, .stylist-page .stylist-avatar-box, .avatar-reveal { aspect-ratio: 1 / 2; width: auto; height: min(78svh, 900px); }
+.avatar-boundary-box img, .render-img, .avatar-reveal img { object-fit: contain; }
+@media (max-width: 700px) {
+  .stylist-avatar-box, .stylist-page .stylist-avatar-box, .avatar-reveal { width: auto; height: min(56svh, 480px); }
+}
