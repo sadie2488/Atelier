@@ -1,0 +1,157 @@
+/* White armoire on the home screen. Sized from one variable (--w, the carcass width). */
+.scene {
+  --w: clamp(190px, 31vh, 300px);
+  --floor-h: 30vh;
+  --white: #fcfbf8;
+  --shade: #ebe8e1;
+  --line: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --hair: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --swing: 720ms cubic-bezier(.22, .8, .28, 1);
+  /* room palette (oak, default) */
+  --wall: oklch(0.30 0.01 250);
+  --wall-deep: oklch(0.19 0.008 250);
+  --wood: #8a6a4a; --wood-dark: #6b5038; --wood-light: #a3825f;
+  --base: oklch(0.34 0.01 250);
+  --rail-on: 0;
+  position: fixed; inset: 0; overflow: hidden;
+}
+.scene[data-room="walnut"] {
+  --wall: oklch(0.25 0.008 250); --wall-deep: oklch(0.15 0.006 250);
+  --wood: #5a3f2c; --wood-dark: #3f2b1e; --wood-light: #6f5038;
+  --base: oklch(0.29 0.008 250); --rail-on: 1;
+}
+.scene[data-room="slate"] {
+  --wall: oklch(0.37 0.012 245); --wall-deep: oklch(0.24 0.01 245);
+  --wood: #9b8a76; --wood-dark: #7d6d5b; --wood-light: #b3a28c;
+  --base: oklch(0.42 0.012 245); --rail-on: 1;
+}
+
+/* ---- the room: wall with a soft spotlight, picture rail, baseboard, receding plank floor ---- */
+.room { position: absolute; inset: 0; transition: opacity 420ms ease-in 760ms; }
+.wall { position: absolute; inset: 0 0 var(--floor-h) 0; display: block;
+  background: radial-gradient(ellipse 34% 62% at 50% 34%, color-mix(in oklab, var(--wall) 82%, #fff4e0) 0%, var(--wall) 55%, var(--wall-deep) 115%); }
+.pictureRail { position: absolute; left: 0; right: 0; top: 11vh; height: 5px; display: block; opacity: calc(var(--rail-on) * .55);
+  background: linear-gradient(color-mix(in oklab, var(--base) 70%, #fff) 0 1px, var(--base) 1px 4px, var(--wall-deep) 4px); }
+.baseboard { position: absolute; left: 0; right: 0; bottom: calc(var(--floor-h) - 1px); height: 16px; display: block;
+  background: linear-gradient(color-mix(in oklab, var(--base) 55%, #fff) 0 1px, var(--base) 1px 3px, color-mix(in oklab, var(--base) 88%, #000) 100%);
+  box-shadow: 0 3px 8px rgba(0,0,0,.35); z-index: 1; }
+.ground { position: absolute; left: 0; right: 0; bottom: 0; height: var(--floor-h); display: block; overflow: hidden; background: var(--wood-dark); isolation: isolate; contain: paint; transform: translateZ(0); }
+.planks { position: absolute; left: -80%; right: -80%; top: 0; height: 340%; display: block; transform-origin: 50% 0; transform: perspective(520px) rotateX(66deg);
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.30) 0 1px, rgba(255,235,210,.06) 1px 2px, transparent 2px 58px),
+    repeating-linear-gradient(0deg, transparent 0 340px, rgba(0,0,0,.22) 340px 341.5px, transparent 341.5px 760px),
+    repeating-linear-gradient(90deg, transparent 0 9px, rgba(0,0,0,.06) 9px 10px, transparent 10px 21px, rgba(255,240,220,.05) 21px 22px, transparent 22px 33px, rgba(0,0,0,.05) 33px 35px, transparent 35px 47px, rgba(255,240,220,.04) 47px 48px, transparent 48px 58px),
+    repeating-linear-gradient(90deg, var(--wood) 0 58px, color-mix(in oklab, var(--wood) 70%, var(--wood-light)) 58px 116px, color-mix(in oklab, var(--wood) 75%, var(--wood-dark)) 116px 174px, color-mix(in oklab, var(--wood) 85%, var(--wood-light)) 174px 232px, color-mix(in oklab, var(--wood) 60%, var(--wood-dark)) 232px 290px, var(--wood) 290px 348px, color-mix(in oklab, var(--wood) 80%, var(--wood-light)) 348px 406px); }
+/* light falloff on the floor: bright pool under the wardrobe, dark far corners */
+.groundShade { z-index: 2; transform: translateZ(0); position: absolute; left: 0; right: 0; bottom: 0; height: var(--floor-h); display: block;
+  background: radial-gradient(ellipse 38% 90% at 50% 10%, rgba(255,240,215,.16), transparent 70%),
+    linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,.12) 38%, rgba(0,0,0,.08) 70%, rgba(0,0,0,.38)),
+    linear-gradient(90deg, rgba(0,0,0,.55), transparent 30%, transparent 70%, rgba(0,0,0,.55)); }
+
+.stand { position: absolute; left: 50%; bottom: calc(var(--floor-h) - 30px); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; z-index: 2; }
+
+.wardrobe {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  will-change: transform;
+}
+.wardrobe:focus-visible { outline: none; }
+
+/* ---- crown molding: cap, cove, fillet ---- */
+.crown { display: flex; flex-direction: column; align-items: center; position: relative; z-index: 2; }
+.cap { width: calc(var(--w) + 28px); height: 6px; background: linear-gradient(#fff, var(--white)); border: 1px solid var(--line); border-radius: 1px; box-shadow: 0 1px 0 #fff inset; }
+.cove { width: calc(var(--w) + 20px); height: 13px; margin-top: -1px; background: linear-gradient(var(--shade) 0%, #f6f4ef 40%, #fff 100%); border: 1px solid var(--line); border-top: 0; clip-path: polygon(0 0, 100% 0, calc(100% - 3px) 100%, 3px 100%); }
+.fillet { width: calc(var(--w) + 8px); height: 5px; background: var(--white); border: 1px solid var(--line); border-top: 0; }
+
+/* ---- carcass: a white frame around a see-through opening ---- */
+.body {
+  position: relative; width: var(--w); height: calc(var(--w) * 1.46);
+  border: 11px solid var(--white); border-top-width: 9px; border-bottom-width: 12px;
+  box-shadow: 0 0 0 1px var(--line), 0 0 60px -10px rgba(0,0,0,.45);
+  background: transparent;
+}
+.opening {
+  position: absolute; inset: 0; display: block; perspective: 1150px;
+  background: url("/cloud-sky-pano.jpg") 50% 50% / auto 118% repeat-x; animation: portal-drift 90s linear infinite;
+  /* inner rim: hairline + soft depth, drawn over the transparent back */
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 12px 14px -12px color-mix(in oklab, var(--foreground) 30%, transparent),
+    inset 10px 0 12px -12px color-mix(in oklab, var(--foreground) 25%, transparent), inset -10px 0 12px -12px color-mix(in oklab, var(--foreground) 25%, transparent);
+}
+
+/* rail + hangers: hidden behind the doors, fade in as they open */
+.hangers { position: absolute; left: 0; top: 3%; width: 100%; height: auto; opacity: 0; transition: opacity 500ms ease 160ms; overflow: visible; }
+.hanger { stroke: color-mix(in oklab, var(--foreground) 45%, transparent); transform-origin: 2px 0; transform-box: view-box; }
+
+/* ---- doors ---- */
+.door { position: absolute; top: 0; bottom: 0; width: 50%; display: block; transform-style: preserve-3d; transition: transform var(--swing); }
+.left { left: 0; transform-origin: 0 50%; }
+.right { right: 0; transform-origin: 100% 50%; }
+.front, .back { position: absolute; inset: 0; display: block; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.front { background: linear-gradient(100deg, #fff 0%, var(--white) 55%, #f4f2ec 100%); box-shadow: inset 0 0 0 1px var(--hair); }
+.right .front { background: linear-gradient(80deg, #f7f5f0 0%, var(--white) 45%, #fff 100%); }
+.back { transform: rotateY(180deg); background: linear-gradient(90deg, #efece5, #f8f6f1); box-shadow: inset 0 0 0 1px var(--hair); }
+
+/* raised panels: hairline outer edge, a second inset hairline */
+.panelTop, .panelLow { position: absolute; left: 15%; right: 15%; display: block; border: 1px solid var(--line); box-shadow: 1px 1px 0 #fff, inset 1px 1px 0 #fff; }
+.panelTop { top: 6.5%; height: 58%; }
+.panelLow { bottom: 6%; height: 21%; }
+.panelTop::after, .panelLow::after { content: ""; position: absolute; inset: 5px; border: 1px solid var(--hair); }
+
+.knob { position: absolute; top: 67.5%; width: 7px; height: 7px; border-radius: 50%; display: block;
+  background: radial-gradient(circle at 35% 30%, #fff7de 0%, #dcc07e 38%, #a8823b 78%, #7c5e27 100%);
+  box-shadow: 0 1.5px 2px color-mix(in oklab, var(--foreground) 35%, transparent); }
+.left .knob { right: 7px; }
+.right .knob { left: 7px; }
+
+/* ---- plinth + slim legs + floor shadow ---- */
+.plinth { width: calc(var(--w) + 12px); height: 15px; margin-top: -1px; display: block; background: linear-gradient(#fff, var(--white) 30%, var(--shade)); border: 1px solid var(--line); border-radius: 1px; box-shadow: inset 0 3px 0 -2px #fff; position: relative; z-index: 1; }
+.legs { width: calc(var(--w) - 8px); display: flex; justify-content: space-between; margin-top: -1px; }
+.legs span { width: 10px; height: 24px; display: block; background: linear-gradient(90deg, var(--shade), #fff 45%, var(--shade)); clip-path: polygon(0 0, 100% 0, 72% 100%, 28% 100%); }
+.floor { position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); width: calc(var(--w) * 1.25); height: 22px; border-radius: 50%; z-index: -1; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,.62) 0%, rgba(0,0,0,.28) 45%, transparent 72%); filter: blur(4px); }
+
+@keyframes portal-drift { from { background-position-x: 0; } to { background-position-x: -1600px; } }
+
+/* ---- caption ---- */
+.caption { position: absolute; top: calc(100% + 30px); white-space: nowrap; margin: 0; display: flex; align-items: center; gap: 14px; font: italic 400 clamp(19px, 1.55vw, 23px)/1 var(--font-display); letter-spacing: .05em; color: oklch(0.86 0.012 80 / 82%); text-shadow: 0 1px 10px rgba(0,0,0,.35); transition: color .4s, letter-spacing .4s, opacity .3s; pointer-events: none; }
+.caption::before, .caption::after { content: ""; width: 26px; height: 1px; background: oklch(0.86 0.012 80 / 40%); transition: width .4s, background .4s; }
+
+/* ---- open: hover, keyboard focus, or entering ---- */
+.wardrobe:hover .left, .wardrobe:focus-visible .left, .entering .left, .wardrobe[data-open] .left { transform: rotateY(-108deg); }
+.wardrobe:hover .right, .wardrobe:focus-visible .right, .entering .right, .wardrobe[data-open] .right { transform: rotateY(108deg); }
+.wardrobe:hover .hangers, .wardrobe:focus-visible .hangers, .entering .hangers, .wardrobe[data-open] .hangers { opacity: 1; }
+.wardrobe:hover .hanger, .wardrobe:focus-visible .hanger { animation: sway 2.4s ease-in-out 1; }
+.scene:has(.wardrobe:hover) .caption, .scene:has(.wardrobe:focus-visible) .caption { color: #fbf8f2; letter-spacing: .08em; }
+.scene:has(.wardrobe:hover) .caption::before, .scene:has(.wardrobe:hover) .caption::after { width: 40px; background: oklch(0.78 0.05 245); }
+@keyframes sway { 0% { transform: rotate(0); } 25% { transform: rotate(2.2deg); } 55% { transform: rotate(-1.4deg); } 80% { transform: rotate(.6deg); } 100% { transform: rotate(0); } }
+
+/* ---- enter: zoom through the open interior ---- */
+.entering .wardrobe { transform: var(--wd-zoom); opacity: 0; cursor: default;
+  transition: transform 950ms cubic-bezier(.6, 0, .3, 1) 180ms, opacity 380ms ease-in 800ms; }
+.entering .caption { opacity: 0; }
+.entering .room { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .door, .hangers, .entering .wardrobe { transition: none; }
+  .hanger { animation: none !important; }
+}
+
+/* door thickness: a slim edge along the free side, seen as the door swings past edge-on */
+.door::after { content: ""; position: absolute; top: 0; bottom: 0; width: 6px; background: linear-gradient(90deg, #e9e6df, #f7f5f0); box-shadow: inset 0 0 0 1px var(--hair); }
+.left::after { right: 0; transform-origin: 100% 50%; transform: rotateY(90deg); }
+.right::after { left: 0; transform-origin: 0 50%; transform: rotateY(-90deg); }
+
+/* ---- "dim" rooms: the app sky everywhere, dimmed by a charcoal veil with a soft glow around the wardrobe;
+        the wardrobe and the sky seen through it stay fully bright ---- */
+.scene[data-room="dim"], .scene[data-room="dim-light"] { --floor-h: 27vh; --veil: .72; }
+.scene[data-room="dim-light"] { --veil: .5; }
+.scene[data-room="dim-dark"], .scene[data-room="dim-darker"] { --floor-h: 27vh; --veil: .86; }
+.scene[data-room="dim-darker"] { --veil: .92; }
+.scene[data-room^="dim"] .wall, .scene[data-room^="dim"] .pictureRail, .scene[data-room^="dim"] .ground,
+.scene[data-room^="dim"] .groundShade, .scene[data-room^="dim"] .baseboard { display: none; }
+.scene[data-room^="dim"] .room::before { content: ""; position: absolute; inset: 0; opacity: var(--veil);
+  background: radial-gradient(ellipse 26% 42% at 50% 47%, oklch(0.28 0.01 250 / 62%) 0%, oklch(0.28 0.01 250 / 88%) 55%, oklch(0.22 0.01 250) 100%); }
+.scene[data-room^="dim"] .wardrobe .body { box-shadow: 0 0 0 1px var(--line), 0 30px 60px -30px rgba(0,0,0,.5); }
+/* v5: almost black, with a faint glow so the wardrobe's edges still read */
+.scene[data-room="dim-black"] { --floor-h: 27vh; --veil: .95; }
+.scene[data-room="dim-black"] .room::before { background: radial-gradient(ellipse 24% 40% at 50% 47%, oklch(0.24 0.008 250 / 80%) 0%, oklch(0.15 0.006 250 / 96%) 50%, oklch(0.10 0.005 250) 100%); }
