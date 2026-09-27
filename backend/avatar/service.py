@@ -1,7 +1,11 @@
-"""Orchestration for POST /avatar/scan and POST/GET /render -- the local composite path
-(A1-A6). No Gemini here: A7 (generation) is out of scope for this dispatch, so render always
-returns status `failed` with a correct, present local_url (A-R2, A-R6, A-R12), shaped so a
-later background job can flip a `pending` row to `done` without changing this shape.
+"""Orchestration for POST /avatar/scan and POST/GET /render.
+
+The local composite (A1-A6) is always built synchronously and always succeeds from there on --
+it is what POST /render returns immediately (A-R2, A-R6). A7 generation, when possible (a
+Gemini key is configured and the scan kept its source photo), is handed to a background worker
+(backend/avatar/background.py) that never runs on the request path; this module only decides
+whether to start it and returns `pending` in that case, or `failed` if generation is not
+possible at all (severability, A-R6).
 """
 import io
 from datetime import datetime, timezone
@@ -10,12 +14,13 @@ from typing import Optional
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 
+from backend import config
 from contract.enums import ErrorCode, GarmentType, MAX_UPLOAD_BYTES, RenderStatus
 
-from . import compositing, face, ids, media, skin
+from . import background, compositing, face, ids, media, skin
 from .draw import draw_avatar, draw_wireframe
 from .errors import AvatarError
-from .landmarks import detect_landmarks
+from .landmarks import LM_INDEX, detect_landmarks
 from .pose_validation import validate as validate_pose
 from .rig import canvas_bbox, compute_rig, rig_from_dict, rig_to_dict, translate
 
@@ -69,6 +74,8 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
     avatar_id = ids.new_avatar_id(lambda aid: avatars_collection.find_one({"avatar_id": aid}) is not None)
     wireframe_url = media.save_png(wireframe_img, "avatars", f"{avatar_id}_wireframe.png")
     avatar_url = media.save_png(avatar_img, "avatars", f"{avatar_id}.png")
+    # A7: kept for the generation call, which needs a real photo, not the line-art avatar.
+    source_photo_url = media.save_png(Image.fromarray(rgb), "avatars", f"{avatar_id}_photo.png")
 
     return {
         "avatar_id": avatar_id,
@@ -78,6 +85,10 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
         "rig": rig_to_dict(rig_local),
         "canvas_w": canvas_w,
         "canvas_h": canvas_h,
+        "source_photo_url": source_photo_url,
+        "source_landmarks": {name: [landmarks[name][0], landmarks[name][1]] for name in LM_INDEX},
+        "source_w": rgb.shape[1],
+        "source_h": rgb.shape[0],
     }
 
 
@@ -94,9 +105,13 @@ def render(
     top_doc: dict,
     bottom_doc: dict,
     jacket_doc: Optional[dict],
+    renders_collection,
 ) -> dict:
-    """-> a render doc (contract fields) ready to insert. The local composite is built now and
-    always succeeds from here on; without A7 there is no generation step to run."""
+    """-> the render doc as inserted (contract fields). The local composite is built here and
+    always succeeds from this point on (A-R2, A-R6). If generation is possible, the doc is
+    inserted as `pending` and a background job is started (backend/avatar/background.py, never
+    on this thread); otherwise it is inserted as `failed` -- A7 is fully severable.
+    """
     rig = rig_from_dict(avatar_doc["rig"])
     canvas_size = (avatar_doc["canvas_w"], avatar_doc["canvas_h"])
     avatar_img = media.load_from_url(avatar_doc["avatar_url"])
@@ -108,9 +123,18 @@ def render(
     composed = compositing.composite_outfit(avatar_img, canvas_size, rig, bottom=bottom, top=top, jacket=jacket)
     local_url = media.save_png(composed, "renders", f"{render_id}_local.png")
 
-    return {
+    can_generate = bool(config.GEMINI_API_KEY) and bool(avatar_doc.get("source_photo_url"))
+    status = RenderStatus.pending if can_generate else RenderStatus.failed
+
+    job = {
         "render_id": render_id,
-        "status": RenderStatus.failed.value,
+        "status": status.value,
         "local_url": local_url,
         "generated_url": None,
     }
+    renders_collection.insert_one(job)
+
+    if can_generate:
+        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection)
+
+    return job

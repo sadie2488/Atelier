@@ -1,10 +1,13 @@
 """Avatar lane: /api/avatar/* and /api/render/*.
 
 A1-A6: capture + pose validation, wireframe rig, avatar assembly, placement, local compositing,
-and the two-stage render endpoint. A7 (Gemini generation) is out of scope here, so POST /render
-returns the local composite with status `failed` immediately (contract: failed = stop polling,
-keep the local composite) -- see backend/avatar/service.py.
+and the two-stage render endpoint. A7: POST /render returns the local composite immediately and,
+when generation is possible, status `pending` while a background worker
+(backend/avatar/background.py) attempts the Gemini try-on and verification off this thread; when
+it is not possible (no key, or an avatar with no stored source photo), status is `failed` right
+away -- A7 is fully severable (A-R6).
 """
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, UploadFile
@@ -17,6 +20,8 @@ from contract.schemas import Avatar, AvatarScanResponse, RenderJob, RenderReques
 from backend.avatar import ids, service
 from backend.avatar.errors import AvatarError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["avatar"])
 
 _STATUS_BY_CODE: dict[ErrorCode, int] = {
@@ -25,6 +30,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.no_person_detected: 422,
     ErrorCode.pose_rejected: 422,
     ErrorCode.not_found: 404,
+    ErrorCode.internal_error: 500,
 }
 
 
@@ -47,6 +53,9 @@ async def scan(image: UploadFile = File(...), db=Depends(get_db)):
         doc = service.scan(data, db["avatars"])
     except AvatarError as e:
         return _error(e.code, e.message)
+    except Exception:  # A9: never an unhandled exception / bare 500
+        logger.exception("avatar: scan failed unexpectedly")
+        return _error(ErrorCode.internal_error, "Could not process the photo.")
     db["avatars"].insert_one(doc)
     return AvatarScanResponse.model_validate(_clean(doc, AvatarScanResponse))
 
@@ -83,11 +92,13 @@ def render(body: RenderRequest, db=Depends(get_db)):
             return _error(ErrorCode.not_found, f"Item {body.jacket_id!r} does not exist.")
 
     try:
-        job = service.render(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc)
+        job = service.render(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, db["renders"])
     except AvatarError as e:
         return _error(e.code, e.message)
+    except Exception:  # A9: never an unhandled exception / bare 500
+        logger.exception("avatar: render failed unexpectedly")
+        return _error(ErrorCode.internal_error, "Could not build the render.")
 
-    db["renders"].insert_one(job)
     return RenderJob.model_validate(_clean(job, RenderJob))
 
 

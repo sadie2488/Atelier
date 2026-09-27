@@ -1,0 +1,82 @@
+"""A7: the generation ladder runs off the request thread, never in it (A-R12). POST /render has
+already returned the local composite by the time anything here runs; this module's only job is
+to eventually flip a stored render doc from `pending` to `done` (+ generated_url) or `failed`.
+Abandonment is harmless -- if nobody is polling, the job still finishes and populates the cache
+(BACKEND_API.md).
+
+A-R15 quota discipline: no retries here. A single failure (network, quota, verification) marks
+the render `failed` immediately; the contract explicitly treats `failed` as "keep the local
+composite, no error" so a quiet failure is the CORRECT behavior, not a degraded one.
+"""
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
+
+import numpy as np
+
+from contract.enums import GarmentType, RenderStatus
+
+from . import gen_client, media, verify
+from .errors import AvatarError
+
+logger = logging.getLogger(__name__)
+
+# Small pool: this is a hackathon demo, not a production fan-out. Never joined by request code.
+_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="avatar-gen")
+
+
+def submit(
+    render_id: str,
+    avatar_doc: dict,
+    top_doc: dict,
+    bottom_doc: dict,
+    jacket_doc: Optional[dict],
+    renders_collection,
+):
+    _EXECUTOR.submit(_run, render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection)
+
+
+def _update(renders_collection, render_id: str, status: RenderStatus, generated_url: Optional[str]):
+    renders_collection.update_one(
+        {"render_id": render_id},
+        {"$set": {"status": status.value, "generated_url": generated_url}},
+    )
+
+
+def _run(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection):
+    try:
+        is_dress = GarmentType(top_doc["garment_type"]) == GarmentType.dress
+
+        person_img = media.load_from_url(avatar_doc["source_photo_url"]).convert("RGB")
+        top_img = media.load_from_url(top_doc["cutout_url"])
+        bottom_img = None if is_dress else media.load_from_url(bottom_doc["cutout_url"])
+        jacket_img = media.load_from_url(jacket_doc["cutout_url"]) if jacket_doc is not None else None
+
+        generated = gen_client.generate_tryon(person_img, top_img, bottom_img, jacket_img, is_dress)
+
+        garments = [(GarmentType(top_doc["garment_type"]), top_doc["primary_color"])]
+        if not is_dress:
+            garments.append((GarmentType(bottom_doc["garment_type"]), bottom_doc["primary_color"]))
+        if jacket_doc is not None:
+            garments.append((GarmentType(jacket_doc["garment_type"]), jacket_doc["primary_color"]))
+
+        ok, reason = verify.verify_colors(
+            np.asarray(generated),
+            avatar_doc["source_landmarks"],
+            (avatar_doc["source_w"], avatar_doc["source_h"]),
+            garments,
+        )
+        if not ok:
+            logger.info("avatar: render %s failed verification: %s", render_id, reason)
+            _update(renders_collection, render_id, RenderStatus.failed, None)
+            return
+
+        generated_url = media.save_png(generated, "renders", f"{render_id}_generated.png")
+        _update(renders_collection, render_id, RenderStatus.done, generated_url)
+
+    except (gen_client.GenerationError, AvatarError) as e:
+        logger.info("avatar: render %s generation failed: %s", render_id, e)
+        _update(renders_collection, render_id, RenderStatus.failed, None)
+    except Exception:  # A9: a worker crash must never leave a render stuck in `pending` forever
+        logger.exception("avatar: render %s worker crashed", render_id)
+        _update(renders_collection, render_id, RenderStatus.failed, None)
