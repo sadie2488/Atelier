@@ -735,3 +735,82 @@ def test_insights_guide_suggestion_uses_bottoms(fixture_items):
     result = compute_insights(fixture_items)
     PaletteInsights.model_validate(result)
     assert len(result["insights"]) <= 6
+
+
+# ------------------------------------------------------------------ demo planned outfits
+
+from backend.styling import planned as planned_mod
+
+_PLAN_ENV = " top_fa36c4 , bottom_6d035c ; dress_66fb4a,bottom_eb4185,jacket_321ef1 "
+
+
+def test_planned_outfits_parses_and_tolerates_whitespace(monkeypatch):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", _PLAN_ENV)
+    assert planned_mod.planned_outfits() == [
+        ("top_fa36c4", "bottom_6d035c", None),
+        ("dress_66fb4a", "bottom_eb4185", "jacket_321ef1"),
+    ]
+
+
+def test_planned_outfits_unset_or_empty(monkeypatch):
+    monkeypatch.delenv("ATELIER_DEMO_OUTFITS", raising=False)
+    assert planned_mod.planned_outfits() == []
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", "  ;  ")
+    assert planned_mod.planned_outfits() == []
+
+
+def test_planned_outfits_malformed_entries_skipped(monkeypatch):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", "garbage;a,b,c,d;,x;top_fa36c4,bottom_6d035c;x,y,")
+    assert planned_mod.planned_outfits() == [("top_fa36c4", "bottom_6d035c", None)]
+
+
+def _first(client, **body):
+    resp = client.post("/api/outfits/generate", json=body)
+    assert resp.status_code == 200
+    validated = OutfitsGenerateResponse.model_validate(resp.json())
+    return validated.outfits
+
+
+def test_planned_rotation_leads_response(monkeypatch, client, fake_db, fixture_items):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", _PLAN_ENV)
+    planned_mod.reset_rotation()
+    fake_db["items"] = _FakeCollection(fixture_items)
+    expected = [
+        ("top_fa36c4", "bottom_6d035c", None),
+        ("dress_66fb4a", "bottom_eb4185", "jacket_321ef1"),
+        ("top_fa36c4", "bottom_6d035c", None),
+    ]
+    for exp in expected:
+        outfits = _first(client)
+        assert (outfits[0].top_id, outfits[0].bottom_id, outfits[0].jacket_id) == exp
+        assert 1 <= len(outfits) <= 5
+        ids = [o.outfit_id for o in outfits]
+        assert len(ids) == len(set(ids))  # no duplicate of the planned outfit
+        assert outfits[0].explanation
+
+
+def test_planned_respects_limit(monkeypatch, client, fake_db, fixture_items):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", _PLAN_ENV)
+    planned_mod.reset_rotation()
+    fake_db["items"] = _FakeCollection(fixture_items)
+    outfits = _first(client, limit=1)
+    assert len(outfits) == 1
+    assert outfits[0].top_id == "top_fa36c4"
+
+
+def test_planned_missing_id_falls_back(monkeypatch, client, fake_db, fixture_items):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", "top_ffffff,bottom_6d035c")
+    planned_mod.reset_rotation()
+    fake_db["items"] = _FakeCollection(fixture_items)
+    outfits = _first(client)
+    assert len(outfits) > 0
+    # empty closet with a plan set still returns empty, not an error
+    fake_db["items"] = _FakeCollection([])
+    assert _first(client) == []
+
+
+def test_planned_malformed_env_does_not_crash(monkeypatch, client, fake_db, fixture_items):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", ";;,,;;garbage;;")
+    planned_mod.reset_rotation()
+    fake_db["items"] = _FakeCollection(fixture_items)
+    assert len(_first(client)) > 0

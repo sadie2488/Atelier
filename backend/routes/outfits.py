@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 from backend.db import get_db
 from contract.schemas import Item, Outfit, OutfitsGenerateRequest, OutfitsGenerateResponse
 
+from backend.styling import planned as planned_mod
 from backend.styling import select as select_mod
 from backend.styling import weights as W
 from backend.styling.explain import explain_many
@@ -31,6 +32,40 @@ def _to_item(doc: dict) -> Item:
     """Strip `_id` and any other DB-only field (e.g. `anchors`) before validating as Item."""
     clean = {k: v for k, v in doc.items() if k in Item.model_fields}
     return Item.model_validate(clean)
+
+
+def _after_planned(first: dict, candidates: list[dict], limit: int) -> list[dict]:
+    """[first] + the scorer's picks that keep the response contract-valid: no duplicate of
+    the planned combo, best-first order (only candidates scoring <= the planned outfit), and
+    the per-strategy / per-garment caps counted with the planned outfit included."""
+    from collections import Counter
+
+    first_key = (first["top_id"], first["bottom_id"], first["jacket_id"])
+    first_score = round(first["score"], 4)
+    rest = [
+        c for c in candidates
+        if (c["top_id"], c["bottom_id"], c["jacket_id"]) != first_key
+        and round(c["score"], 4) <= first_score
+    ]
+    picks = select_mod.select_outfits(rest, W.OUTFITS_MAX, rng=_rng, previous_ids=_last_outfit_ids)
+
+    chosen = [first]
+    strategy_counts: Counter = Counter({first["strategy"]: 1})
+    garment_counts: Counter = Counter({first["top_id"]: 1, first["bottom_id"]: 1})
+    for c in picks:
+        if len(chosen) >= limit:
+            break
+        if (
+            strategy_counts[c["strategy"]] >= W.OUTFITS_MAX_PER_STRATEGY
+            or garment_counts[c["top_id"]] >= W.OUTFITS_MAX_SHARING_GARMENT
+            or garment_counts[c["bottom_id"]] >= W.OUTFITS_MAX_SHARING_GARMENT
+        ):
+            continue
+        chosen.append(c)
+        strategy_counts[c["strategy"]] += 1
+        garment_counts[c["top_id"]] += 1
+        garment_counts[c["bottom_id"]] += 1
+    return chosen
 
 
 @router.post("/generate", response_model=OutfitsGenerateResponse)
@@ -58,9 +93,26 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
         for strategy, top, bottom, jacket, score in generate_candidates(tops, bottoms, jackets)
     ]
 
-    chosen = select_mod.select_outfits(
-        candidates, min(req.limit, W.OUTFITS_MAX), rng=_rng, previous_ids=_last_outfit_ids
-    )
+    limit = min(req.limit, W.OUTFITS_MAX)
+
+    # Demo planned outfits (ATELIER_DEMO_OUTFITS): when set and the next entry in rotation is
+    # fully in the closet, it leads the response; the scorer's picks follow. Unset -> the
+    # original path below, unchanged.
+    first = None
+    try:
+        plan = planned_mod.planned_outfits()
+        if plan:
+            entry = plan[planned_mod.next_planned_index(len(plan))]
+            first = planned_mod.plan_outfit(entry, items, candidates)
+    except Exception:
+        first = None
+
+    if first is None:
+        chosen = select_mod.select_outfits(
+            candidates, limit, rng=_rng, previous_ids=_last_outfit_ids
+        )
+    else:
+        chosen = _after_planned(first, candidates, limit)
     _last_outfit_ids.clear()
     _last_outfit_ids.update(
         select_mod.make_outfit_id(c["top_id"], c["bottom_id"], c["jacket_id"]) for c in chosen
@@ -85,4 +137,11 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
         for c, explanation in zip(chosen, explanations)
     ]
 
-    return OutfitsGenerateResponse(outfits=outfits)
+    if first is None:
+        return OutfitsGenerateResponse(outfits=outfits)
+    try:
+        return OutfitsGenerateResponse(outfits=outfits)
+    except Exception:
+        # Safety net for the planned path only: never 500 the demo -- the planned outfit alone
+        # is always a valid response.
+        return OutfitsGenerateResponse(outfits=outfits[:1])
