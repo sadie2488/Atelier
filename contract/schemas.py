@@ -17,11 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .enums import (
     CANDIDATE_COUNT, NEUTRAL_CHROMA_MAX, OUTFITS_MAX, OUTFITS_MAX_PER_STRATEGY,
     OUTFITS_MAX_SHARING_GARMENT, SECONDARY_MIN_DELTA_E, SLUG_PREFIX, UNMAPPED, VALID_PAIRS,
-    CandidateVariant, Category, ErrorCode, GarmentType, RenderStatus, Strategy,
+    CandidateVariant, Category, ErrorCode, GarmentType, OutfitStyle, RenderStatus, Strategy,
 )
 from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "2.4.0"
+CONTRACT_VERSION = "2.5.0"
 
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
 SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
@@ -243,8 +243,10 @@ class Outfit(Strict):
 
 
 class OutfitsGenerateRequest(Strict):
-    """POST /outfits/generate. The body may be {} (limit defaults to 5)."""
+    """POST /outfits/generate. The body may be {} (limit defaults to 5). 2.5.0 (additive): optional
+    `style` preset; omitted or null means the usual random pick among the best outfits."""
     limit: int = Field(default=OUTFITS_MAX, ge=1, le=OUTFITS_MAX)
+    style: Optional[OutfitStyle] = None
 
 
 class OutfitsGenerateResponse(Strict):

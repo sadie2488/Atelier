@@ -43,6 +43,14 @@ SLUG_PREFIX: dict[GarmentType, str] = {
 }
 
 
+class OutfitStyle(str, Enum):
+    """2.5.0: optional preset for POST /outfits/generate (never free text)."""
+    casual = "casual"
+    going_out = "going_out"
+    business = "business"
+    monochrome = "monochrome"
+
+
 class Strategy(str, Enum):
     """S-S2 outfit strategies, in degradation-ladder order."""
     neutral_anchor = "neutral_anchor"

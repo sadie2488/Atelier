@@ -550,9 +550,20 @@
       "title": "Outfit",
       "type": "object"
     },
+    "OutfitStyle": {
+      "description": "2.5.0: optional preset for POST /outfits/generate (never free text).",
+      "enum": [
+        "casual",
+        "going_out",
+        "business",
+        "monochrome"
+      ],
+      "title": "OutfitStyle",
+      "type": "string"
+    },
     "OutfitsGenerateRequest": {
       "additionalProperties": false,
-      "description": "POST /outfits/generate. The body may be {} (limit defaults to 5).",
+      "description": "POST /outfits/generate. The body may be {} (limit defaults to 5). 2.5.0 (additive): optional\n`style` preset; omitted or null means the usual random pick among the best outfits.",
       "properties": {
         "limit": {
           "default": 5,
@@ -560,6 +571,17 @@
           "minimum": 1,
           "title": "Limit",
           "type": "integer"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutfitStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "OutfitsGenerateRequest",
@@ -907,5 +929,5 @@
       "type": "object"
     }
   },
-  "title": "Atelier contract 2.4.0"
+  "title": "Atelier contract 2.5.0"
 }

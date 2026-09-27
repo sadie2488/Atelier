@@ -26,7 +26,7 @@ push immediately.
 | GET | `/items?category=` | — | `ItemListResponse` | `get_items` |
 | GET | `/items/{slug}` | — | `Item` | `get_items_detail` |
 | PATCH | `/items/{slug}` | `RenameRequest` `{"name"?, "attributes"?}` (name 1–80 chars; attributes merged, "" removes a key) | `Item` | `patch_items_detail` |
-| POST | `/outfits/generate` | `OutfitsGenerateRequest` (`{}` is valid) | `OutfitsGenerateResponse` | `post_outfits_generate` |
+| POST | `/outfits/generate` | `OutfitsGenerateRequest` (`{}` is valid; 2.5.0 optional `style`: casual, going_out, business, monochrome) | `OutfitsGenerateResponse` | `post_outfits_generate` |
 | POST | `/avatar/scan` | multipart: `image` | `AvatarScanResponse` | `post_avatar_scan` |
 | GET | `/avatar/{avatar_id}` | — | `Avatar` | `get_avatar_detail` |
 | POST | `/render` | `RenderRequest` | `RenderJob` | `post_render` |
