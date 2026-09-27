@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# MediaPipe wasm runtime: copied from node_modules by `npm run copy-mediapipe` (predev/prebuild)
+/public/mediapipe/

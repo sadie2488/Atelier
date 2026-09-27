@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "npm run copy-mediapipe",
     "dev": "next dev",
+    "prebuild": "npm run copy-mediapipe",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "gen:types": "node scripts/gen-types.mjs"
+    "gen:types": "node scripts/gen-types.mjs",
+    "copy-mediapipe": "node scripts/copy-mediapipe-wasm.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"

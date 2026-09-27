@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, BACKUP_AVATAR_ID, downscale, fetchAvatar, scanAvatar, type StoredAvatar } from "@/lib/api";
 import { PoseFigure } from "@/components/PoseFigure";
 import { Loader, StatePanel } from "@/components/StatePanel";
+import { useAutoCapture } from "@/components/scan/useAutoCapture";
 
 type Step =
   | { s: "consent" }
@@ -45,6 +46,7 @@ export default function ScanPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [count, setCount] = useState<number | null>(null);
   const countTimer = useRef<number | null>(null);
+  const autoStartedRef = useRef(false); // true while the running countdown was auto-triggered, not the shutter
 
   const clearCountdown = () => { if (countTimer.current !== null) { window.clearInterval(countTimer.current); countTimer.current = null; } setCount(null); };
   useEffect(() => () => { if (countTimer.current !== null) window.clearInterval(countTimer.current); }, []);
@@ -102,18 +104,40 @@ export default function ScanPage() {
     try { await submit(await downscale(v)); } catch { setStep({ s: "rejected", message: "We couldn't read that frame. Please try again." }); }
   };
 
-  // 5-second countdown, then capture. Pressing the shutter again cancels it.
-  const toggleCountdown = () => {
-    if (countTimer.current !== null) { clearCountdown(); return; }
+  // 5-second countdown, then capture.
+  const startCountdown = () => {
+    if (countTimer.current !== null) return;
     let n = 5;
     setCount(n);
     countTimer.current = window.setInterval(() => {
       n -= 1;
       if (n > 0) { setCount(n); return; }
       clearCountdown();
+      autoStartedRef.current = false;
       void capture();
     }, 1000);
   };
+
+  // Shutter button: start the countdown, or cancel one already running (manual flow, unchanged).
+  const toggleCountdown = () => {
+    if (countTimer.current !== null) { clearCountdown(); autoStartedRef.current = false; return; }
+    startCountdown();
+  };
+
+  // Auto-capture: once every backend pose check has passed continuously for a bit, start the same
+  // countdown as the shutter button. If the pose is lost mid-countdown, cancel and resume guidance.
+  const handleAutoHold = () => {
+    if (countTimer.current !== null || camError) return;
+    autoStartedRef.current = true;
+    startCountdown();
+  };
+  const autoCapture = useAutoCapture(videoRef, step.s === "camera" && !camError, handleAutoHold);
+  useEffect(() => {
+    if (countTimer.current !== null && autoStartedRef.current && autoCapture.status === "active" && !autoCapture.passing) {
+      clearCountdown();
+      autoStartedRef.current = false;
+    }
+  }, [autoCapture.passing, autoCapture.status]);
 
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
@@ -135,9 +159,12 @@ export default function ScanPage() {
           <div className="camera-frame">
             {!camError && <video ref={videoRef} className="camera-video" playsInline muted />}
             {camError && <p className="camera-fallback">Camera unavailable — upload a full-length photo instead.</p>}
-            <PoseFigure className="pose-overlay" />
+            <PoseFigure className={`pose-overlay${autoCapture.passing ? " pose-overlay--ready" : ""}`} />
             {count !== null && <div className="countdown" role="status" aria-live="assertive">{count}</div>}
           </div>
+          {!camError && count === null && autoCapture.status === "active" && (
+            <p className="scan-guidance" role="status" aria-live="polite">{autoCapture.guidance ?? "Hold still…"}</p>
+          )}
           <ul className="scan-instructions">
             {SCAN_INSTRUCTIONS.map((line) => <li key={line}>{line}</li>)}
           </ul>

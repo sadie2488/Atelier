@@ -19,6 +19,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored @mediapipe/tasks-vision wasm runtime (scripts/copy-mediapipe-wasm.mjs) -- generated,
+    // not source we own.
+    "public/mediapipe/**",
   ]),
 ]);
 
