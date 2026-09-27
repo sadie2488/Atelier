@@ -58,6 +58,10 @@ export type ErrorCode =
   | "not_implemented"
   | "internal_error";
 export type Message = string;
+export type Family1 = string;
+export type Count = number;
+export type Share = number;
+export type Hex1 = string;
 export type Status = "ok";
 export type Db = "ok";
 export type Id = string;
@@ -88,6 +92,33 @@ export type Outfits =
   | [Outfit, Outfit, Outfit]
   | [Outfit, Outfit, Outfit, Outfit]
   | [Outfit, Outfit, Outfit, Outfit, Outfit];
+export type ItemCount = number;
+export type NeutralShare = number;
+export type Families = FamilyShare[];
+export type ItemId = string;
+export type Hex2 = string;
+export type DisplayName1 = string | null;
+export type Family2 = string;
+export type Swatches = PaletteSwatch[];
+export type MissingFamilies = string[];
+/**
+ * @maxItems 6
+ */
+export type Insights =
+  | []
+  | [string]
+  | [string, string]
+  | [string, string, string]
+  | [string, string, string, string]
+  | [string, string, string, string, string]
+  | [string, string, string, string, string, string];
+/**
+ * @maxItems 3
+ */
+export type MostVersatile =
+  [] | [VersatileItem] | [VersatileItem, VersatileItem] | [VersatileItem, VersatileItem, VersatileItem];
+export type ItemId1 = string;
+export type OutfitCount = number;
 export type TempHandle1 = string;
 export type Ok = true;
 export type RenderId = string;
@@ -113,6 +144,7 @@ export interface AtelierContract {
   ErrorCode?: ErrorCode;
   ErrorResponse?: ErrorResponse;
   ExtractedColor?: ExtractedColor;
+  FamilyShare?: FamilyShare;
   GarmentType?: GarmentType;
   HealthResponse?: HealthResponse;
   Item?: Item;
@@ -120,6 +152,8 @@ export interface AtelierContract {
   Outfit?: Outfit;
   OutfitsGenerateRequest?: OutfitsGenerateRequest;
   OutfitsGenerateResponse?: OutfitsGenerateResponse;
+  PaletteInsights?: PaletteInsights;
+  PaletteSwatch?: PaletteSwatch;
   RejectRequest?: RejectRequest;
   RejectResponse?: RejectResponse;
   RenderJob?: RenderJob;
@@ -127,6 +161,7 @@ export interface AtelierContract {
   RenderStatus?: RenderStatus;
   SaveRequest?: SaveRequest;
   Strategy?: Strategy;
+  VersatileItem?: VersatileItem;
 }
 /**
  * Form fields of POST /items/analyze (multipart), besides the `image` file part.
@@ -194,6 +229,15 @@ export interface ErrorBody {
 export interface ErrorResponse {
   error: ErrorBody;
 }
+/**
+ * One colors.json family's presence in the closet, by item primary color.
+ */
+export interface FamilyShare {
+  family: Family1;
+  count: Count;
+  share: Share;
+  hex: Hex1;
+}
 export interface HealthResponse {
   status: Status;
   db: Db;
@@ -245,6 +289,29 @@ export interface OutfitsGenerateRequest {
  */
 export interface OutfitsGenerateResponse {
   outfits: Outfits;
+}
+/**
+ * GET /insights/palette: closet-wide color summary for the palette page (styling lane).
+ */
+export interface PaletteInsights {
+  item_count: ItemCount;
+  neutral_share: NeutralShare;
+  families: Families;
+  swatches: Swatches;
+  missing_families: MissingFamilies;
+  insights: Insights;
+  most_versatile: MostVersatile;
+}
+export interface PaletteSwatch {
+  item_id: ItemId;
+  category: Category;
+  hex: Hex2;
+  display_name?: DisplayName1;
+  family: Family2;
+}
+export interface VersatileItem {
+  item_id: ItemId1;
+  outfit_count: OutfitCount;
 }
 /**
  * POST /items/reject. Nothing persists; the rejection is logged.
