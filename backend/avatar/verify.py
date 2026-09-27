@@ -112,10 +112,22 @@ def _region_points(garment_type: GarmentType, points: dict) -> list[tuple[float,
     point's 14.9 / 9.1) on the two renders that already passed, so this doesn't loosen anything
     for a jacket worn closed."""
     try:
+        # Tops and bottoms also get several points (2026-09-27 live QA: a correct try-on of a
+        # striped cami + frayed denim shorts failed because the single bottom point sat on the
+        # crotch seam/inseam shadow, dE 22.8 vs stored; each leg's own upper thigh measured
+        # dE 1.7-4.4 on the same image). Best of N, same as the jacket path.
         if garment_type in (GarmentType.shirt, GarmentType.dress):
             cx, cy = _mid(points, "left_shoulder", "right_shoulder")
             hx, hy = _mid(points, "left_hip", "right_hip")
-            return [((cx + hx) / 2, (cy + hy) / 2)]
+            mx, my = (cx + hx) / 2, (cy + hy) / 2
+            inset = abs(points["left_shoulder"][0] - points["right_shoulder"][0]) * 0.2
+            return [
+                (mx, my),
+                (mx - inset, my),
+                (mx + inset, my),
+                (cx * 0.65 + hx * 0.35, cy * 0.65 + hy * 0.35),
+                (cx * 0.4 + hx * 0.6, cy * 0.4 + hy * 0.6),
+            ]
         if garment_type in (GarmentType.jacket, GarmentType.coat):
             l_sh, l_el = points["left_shoulder"], points["left_elbow"]
             r_sh, r_el = points["right_shoulder"], points["right_elbow"]
@@ -128,7 +140,13 @@ def _region_points(garment_type: GarmentType, points: dict) -> list[tuple[float,
         # pants, shorts, skirt: a point on the upper leg, closer to the hip than the knee
         hx, hy = _mid(points, "left_hip", "right_hip")
         kx, ky = _mid(points, "left_knee", "right_knee")
-        return [(hx * 0.65 + kx * 0.35, hy * 0.65 + ky * 0.35)]
+        out = [(hx * 0.65 + kx * 0.35, hy * 0.65 + ky * 0.35)]
+        for side in ("left", "right"):  # each leg's own upper thigh, off the center seam
+            sh_x, sh_y = points[f"{side}_hip"]
+            sk_x, sk_y = points[f"{side}_knee"]
+            for t in (0.2, 0.3):
+                out.append((sh_x * (1 - t) + sk_x * t, sh_y * (1 - t) + sk_y * t))
+        return out
     except KeyError:
         return []
 

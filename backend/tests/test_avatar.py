@@ -1471,3 +1471,95 @@ def test_gen_inputs_downscaled_to_max_long_side():
     assert max(small.size) == gen_client.GEN_INPUT_MAX_LONG_SIDE and small.size == (1024, 512)
     tiny = Image.new("RGB", (200, 100))
     assert gen_client._shrink(tiny) is tiny
+
+
+# ---------------------------------------------------------------- 2026-09-27 live QA: patterned garments
+
+def _stripe_fill(img, points, garment_type, color):
+    for p in verify._region_points(garment_type, points):
+        _paint_patch(img, p, color)
+
+
+def test_bottom_verifies_off_the_center_seam(monkeypatch):
+    """A correct denim-shorts try-on failed because the single center sample sat on the crotch
+    seam shadow. Each leg's own thigh is now sampled too, best of N."""
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    src = _source_landmarks_dict()
+    pts = {k: (v[0], v[1]) for k, v in src.items()}
+    img = np.zeros((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), dtype=np.uint8)
+    _stripe_fill(img, pts, GarmentType.shirt, (255, 0, 0))
+    _stripe_fill(img, pts, GarmentType.shorts, (0, 0, 255))
+    _paint_patch(img, verify._region_points(GarmentType.shorts, pts)[0], (20, 20, 20), half=20)  # dark seam at center
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})
+    shorts = (GarmentType.shorts, {"primary_color": {"lab": BLUE_LAB}})
+    ok, reason = verify.verify_colors(img, src, PERSON_PHOTO_SIZE, top=shirt, bottom=shorts)
+    assert ok, reason
+    assert len(verify._region_points(GarmentType.shorts, pts)) > 1
+
+
+def test_two_color_garment_matches_via_secondary_but_wrong_color_fails(monkeypatch):
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    src = _source_landmarks_dict()
+    pts = {k: (v[0], v[1]) for k, v in src.items()}
+    img = np.zeros((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), dtype=np.uint8)
+    _stripe_fill(img, pts, GarmentType.shirt, (0, 255, 0))   # the garment shows its secondary color
+    _stripe_fill(img, pts, GarmentType.pants, (0, 0, 255))
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+    two_tone = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}, "secondary_color": {"lab": GREEN_LAB}})
+    ok, reason = verify.verify_colors(img, src, PERSON_PHOTO_SIZE, top=two_tone, bottom=pants)
+    assert ok, reason
+    red_only = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})
+    ok, reason = verify.verify_colors(img, src, PERSON_PHOTO_SIZE, top=red_only, bottom=pants)
+    assert not ok and "dE2000" in reason
+    ok, reason = verify.verify_colors(img, src, PERSON_PHOTO_SIZE, top=two_tone,
+                                      bottom=(GarmentType.pants, {"primary_color": {"lab": RED_LAB}}))
+    assert not ok
+
+
+def test_generation_requests_portrait_aspect_ratio(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key-for-test")
+    captured = {}
+
+    class _FakeModels:
+        def generate_content(self, model, contents, config):
+            captured["config"] = config
+            return type("R", (), {"candidates": []})()
+
+    class _FakeClient:
+        def __init__(self, api_key):
+            self.models = _FakeModels()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _FakeClient)
+    with pytest.raises(gen_client.GenerationError):
+        _real_generate_tryon(Image.new("RGB", (10, 10)), Image.new("RGBA", (10, 10)), None, None, False)
+    assert captured["config"]["image_config"]["aspect_ratio"] == "3:4"
+
+
+def test_head_trim_removes_narrow_protrusion_above_the_head_but_keeps_the_head():
+    """Hair-patch fix: a narrow blob labeled "hair" sticking up off the head (another person in
+    the background, seen on real scans) is trimmed; the real head/hair and body stay."""
+    h, w = 400, 300
+    rgb = np.full((h, w, 3), 235, np.uint8)
+    cats = np.zeros((h, w), np.uint8)
+    cats[60:200, 90:210] = 1            # hair block
+    cats[90:200, 110:190] = 3           # face skin (80 px wide), hairline at y=90
+    cats[10:60, 140:160] = 1            # 20 px wide spike above the head
+    cats[200:400, 60:240] = 4           # clothes
+    rgb[cats == 1] = (90, 60, 40)
+    rgb[cats == 3] = (220, 180, 150)
+    rgb[cats == 4] = (30, 60, 120)
+    mask = cats != 0
+    out = person._trim_head_background(mask, rgb, cats, shoulder_y=200)
+    assert not out[10:50, 140:160].any()          # spike gone
+    assert out[70:200, 100:200].mean() > 0.95     # head and hair kept
+    assert out[200:, :].sum() == mask[200:, :].sum()  # nothing below the shoulders touched
+    assert not (out & ~mask).any()                # only ever removes
+
+
+def test_head_trim_is_a_noop_without_face_skin():
+    cats = np.zeros((100, 100), np.uint8)
+    cats[10:90, 20:80] = 4
+    mask = cats != 0
+    out = person._trim_head_background(mask, np.zeros((100, 100, 3), np.uint8), cats, shoulder_y=40)
+    assert (out == mask).all()

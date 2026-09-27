@@ -101,6 +101,12 @@ def pose_bbox(
 def _segment_person_mask(rgb: np.ndarray) -> Optional[np.ndarray]:
     """-> bool (h, w) mask of every non-background category, or None if segmentation itself
     fails (model load/download failure, or the task raising on this input)."""
+    cats = _segment_categories(rgb)
+    return None if cats is None else cats != 0  # 0 == background (mp_models' category list)
+
+
+def _segment_categories(rgb: np.ndarray) -> Optional[np.ndarray]:
+    """-> uint8 (h, w) multiclass category mask, or None if segmentation itself fails."""
     import mediapipe as mp
 
     try:
@@ -113,12 +119,18 @@ def _segment_person_mask(rgb: np.ndarray) -> Optional[np.ndarray]:
     # The real model returns (h, w, 1); a test double may return the bare (h, w) already.
     if category_mask.ndim == 3:
         category_mask = category_mask[..., 0]
-    return category_mask != 0  # 0 == background (see mp_models.image_segmenter's category list)
+    return np.asarray(category_mask).astype(np.uint8)
 
 
 def _segment_mask_in_crop(crop_rgb: np.ndarray) -> Optional[np.ndarray]:
-    """`_segment_person_mask`, but upscaling a small crop first (see SEGMENTER_TARGET_DIM) and
-    mapping the resulting mask back to the crop's own original size."""
+    """-> bool person mask for the crop (see `_segment_categories_in_crop`)."""
+    cats = _segment_categories_in_crop(crop_rgb)
+    return None if cats is None else cats != 0
+
+
+def _segment_categories_in_crop(crop_rgb: np.ndarray) -> Optional[np.ndarray]:
+    """`_segment_categories`, but upscaling a small crop first (see SEGMENTER_TARGET_DIM) and
+    mapping the resulting category mask back to the crop's own original size."""
     ch, cw = crop_rgb.shape[:2]
     scale = SEGMENTER_TARGET_DIM / max(ch, cw) if max(ch, cw) < SEGMENTER_TARGET_DIM else 1.0
 
@@ -128,12 +140,64 @@ def _segment_mask_in_crop(crop_rgb: np.ndarray) -> Optional[np.ndarray]:
             crop_rgb, (round(cw * scale), round(ch * scale)), interpolation=cv2.INTER_LANCZOS4,
         )
 
-    mask = _segment_person_mask(source)
-    if mask is None:
+    cats = _segment_categories(source)
+    if cats is None:
         return None
     if scale > 1.0:
-        mask = cv2.resize(mask.astype(np.uint8), (cw, ch), interpolation=cv2.INTER_NEAREST) > 0
-    return mask
+        cats = cv2.resize(cats, (cw, ch), interpolation=cv2.INTER_NEAREST)
+    return cats
+
+
+# Hair-patch fix (2026-09-27, human-flagged): every real-body cutout kept a jagged patch of
+# background at the top/side of the head. Real cause (avatar_e6b852/_56501c source photos): the
+# scans stand in front of framed photos of OTHER people, and the multiclass segmenter labels those
+# people's heads/arms as "hair" connected to the user's own hair, so the largest-component step
+# keeps them. Fix, head zone only (rows above the shoulder line): (1) GrabCut seeded from the
+# segmenter -- face/body skin and clothes are sure-foreground, the rest of the mask is
+# probable-foreground, everything outside is background -- which drops the off-color side
+# patches; (2) above the face-skin hairline only, a morphological open with a disc of half the face
+# width, which removes narrow protrusions sticking up off the head without rounding a real head
+# top (much wider than that disc). Only ever REMOVES mask pixels, never adds; a no-op when the
+# segmenter found no face skin.
+HEAD_OPEN_FACE_FRACTION = 0.5
+GRABCUT_ITERATIONS = 5
+GRABCUT_BAND_PX = 31  # probable-background band around the mask for GrabCut to learn from
+
+
+def _trim_head_background(
+    mask: np.ndarray, crop_rgb: np.ndarray, cats: np.ndarray, shoulder_y: Optional[float],
+) -> np.ndarray:
+    face_ys, face_xs = np.where(cats == 3)
+    if shoulder_y is None or face_ys.size == 0:
+        return mask
+    h_zone = int(min(max(shoulder_y, 0), mask.shape[0]))
+    if h_zone < 8:
+        return mask
+    try:
+        m0 = mask[:h_zone]
+        gc = np.full(m0.shape, cv2.GC_BGD, np.uint8)
+        band = cv2.dilate(m0.astype(np.uint8), np.ones((GRABCUT_BAND_PX, GRABCUT_BAND_PX), np.uint8)) > 0
+        gc[band] = cv2.GC_PR_BGD
+        gc[m0] = cv2.GC_PR_FGD
+        core = cv2.erode(np.isin(cats[:h_zone], [2, 3, 4]).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        gc[core & m0] = cv2.GC_FGD
+        bgd, fgd = np.zeros((1, 65)), np.zeros((1, 65))
+        zone_bgr = cv2.cvtColor(np.ascontiguousarray(crop_rgb[:h_zone]), cv2.COLOR_RGB2BGR)
+        cv2.grabCut(zone_bgr, gc, None, bgd, fgd, GRABCUT_ITERATIONS, cv2.GC_INIT_WITH_MASK)
+        trimmed = mask.copy()
+        trimmed[:h_zone] = ((gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)) & m0
+    except cv2.error:
+        trimmed = mask.copy()  # GrabCut can refuse degenerate seeds; skip that step, keep going
+    trimmed = _largest_component(trimmed)
+
+    hairline = int(face_ys.min())
+    kd = max(3, int((face_xs.max() - face_xs.min()) * HEAD_OPEN_FACE_FRACTION)) | 1
+    if hairline > 0:
+        region = trimmed[:hairline + kd].astype(np.uint8)
+        opened = cv2.morphologyEx(region, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kd, kd))) > 0
+        trimmed[:hairline] &= opened[:hairline]
+        trimmed = _largest_component(trimmed)
+    return trimmed & mask
 
 
 def _largest_component(mask: np.ndarray) -> np.ndarray:
@@ -232,6 +296,7 @@ def _trim_feet_shadow(mask: np.ndarray, crop_rgb: np.ndarray, ankle_y: Optional[
 
 def build_person_cutout(
     rgb: np.ndarray, bbox: tuple[int, int, int, int], ankle_y: Optional[float] = None,
+    shoulder_y: Optional[float] = None,
 ) -> Optional[tuple[Image.Image, tuple[int, int, int, int]]]:
     """Segments only within `bbox` (see `pose_bbox`) -- not the whole frame. `ankle_y`: the
     average ankle landmark y in `rgb`'s own full-frame pixel coordinates, used only to trim a
@@ -243,12 +308,17 @@ def build_person_cutout(
     bx0, by0, bx1, by1 = bbox
     crop = rgb[by0:by1, bx0:bx1]
 
-    mask = _segment_mask_in_crop(crop)
-    if mask is None or mask.sum() < MIN_PERSON_FRACTION * mask.size:
+    cats = _segment_categories_in_crop(crop)
+    if cats is None:
+        return None
+    mask = cats != 0
+    if mask.sum() < MIN_PERSON_FRACTION * mask.size:
         return None
 
     cleaned = _largest_component(mask)
     cleaned = _close_small_holes(cleaned)
+    shoulder_y_local = (shoulder_y - by0) if shoulder_y is not None else None
+    cleaned = _trim_head_background(cleaned, crop, cats, shoulder_y_local)
     if cleaned.sum() < MIN_PERSON_FRACTION * cleaned.size:
         return None
 

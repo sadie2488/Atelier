@@ -17,6 +17,11 @@ from .prompt import MODEL, build_prompt
 # no visible quality loss in the try-on (checked on a real call).
 GEN_INPUT_MAX_LONG_SIDE = 1024
 
+# Output framing: without this the model picks its own aspect (seen 864x1216, 720x1440 and a
+# landscape 1131x944 with the person tiny). A standing full-body try-on is portrait; 3:4 is
+# accepted by google-genai 2.x ImageConfig.aspect_ratio.
+GEN_OUTPUT_ASPECT_RATIO = "3:4"
+
 
 def _shrink(img: Image.Image, max_long_side: int = GEN_INPUT_MAX_LONG_SIDE) -> Image.Image:
     long_side = max(img.width, img.height)
@@ -67,7 +72,10 @@ def generate_tryon(
         response = client.models.generate_content(
             model=model or MODEL,
             contents=contents,
-            config={"http_options": {"timeout": int(config.GEMINI_IMAGE_TIMEOUT_SECONDS * 1000)}},
+            config={
+                "http_options": {"timeout": int(config.GEMINI_IMAGE_TIMEOUT_SECONDS * 1000)},
+                "image_config": {"aspect_ratio": GEN_OUTPUT_ASPECT_RATIO},
+            },
         )
     except errors.APIError as e:
         raise GenerationError(f"Gemini call failed: {e}") from e
