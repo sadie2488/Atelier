@@ -11,14 +11,23 @@ over fidelity, and A-R10's ΔE check gates the swap on color only.
 """
 from backend.config import GEMINI_IMAGE_MODEL
 
-PROMPT_VERSION = "v2"  # v2: a dress outfit now also sends and describes the bottom (A-R5/A-R7)
+PROMPT_VERSION = "v3"  # v3: the face must not be edited at all; full-length framing (human request)
+# v2: a dress outfit now also sends and describes the bottom (A-R5/A-R7)
 MODEL = GEMINI_IMAGE_MODEL  # pinned; never "latest" (A-R8)
 
+_FACE = (
+    "The person's face must not be edited or modified in any way: keep the exact same face, "
+    "features, expression, hair, skin tone, makeup and accessories pixel-faithful to the first "
+    "image. Do not beautify, retouch, re-light, reshape, or replace the face, and do not swap in "
+    "a different person."
+)
+
 _PRESERVE = (
-    "Preserve the person's face, identity, body shape, pose, and the photo's background and "
-    "lighting exactly as in the first image -- change only the clothing. Do not alter the "
-    "person's proportions, skin tone, or facial features. Output a single photorealistic image "
-    "of the same person, no text, no collage, no side-by-side comparison."
+    "Preserve the person's identity, body shape, pose, and the photo's background and lighting "
+    "exactly as in the first image -- change only the clothing. Do not alter the person's "
+    "proportions or skin tone. Keep the same full-length framing as the first image, head to "
+    "feet, with the whole face visible and uncropped. Output a single photorealistic image of the "
+    "same person, no text, no collage, no side-by-side comparison."
 )
 
 
@@ -48,5 +57,5 @@ def build_prompt(has_jacket: bool, is_dress: bool) -> str:
     )
     return (
         "You are compositing a virtual try-on photo from reference images. The first image is "
-        "the person to dress. " + garment_line + jacket_line + " " + _PRESERVE
+        "the person to dress. " + garment_line + jacket_line + " " + _FACE + " " + _PRESERVE
     )

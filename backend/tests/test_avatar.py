@@ -271,52 +271,103 @@ def _fake_segmenter_with_mask(category_mask):
     return _FakeSegmenter()
 
 
-def _big_person_mask(size=PERSON_PHOTO_SIZE):
-    """A tall vertical blob comfortably over person.MIN_PERSON_FRACTION of the frame -- a
-    plausible "person" mask for these tests, not a realistic silhouette."""
-    w, h = size
+def _big_person_mask(crop_shape):
+    """crop_shape = (h, w): a big inset blob comfortably over person.MIN_PERSON_FRACTION of that
+    crop -- a plausible "person" mask for these tests, not a realistic silhouette."""
+    h, w = crop_shape
     mask = np.zeros((h, w), dtype=np.uint8)
-    mask[round(h * 0.07):round(h * 0.9), round(w * 0.24):round(w * 0.83)] = 4  # "clothes" category
+    mask[round(h * 0.03):round(h * 0.97), round(w * 0.08):round(w * 0.92)] = 4  # "clothes" category
     return mask
 
 
-def test_person_cutout_used_when_mask_plausible(monkeypatch):
-    rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
-    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask()))
+def _crop_shape_for(landmarks, frame_size):
+    """-> (bbox, (crop_h, crop_w)) -- the SAME pose bbox build_avatar_visuals will compute, so a
+    test's fake mask can be sized to match it exactly (required when the crop is >= 256px on its
+    long side, since then person._segment_mask_in_crop does not resize)."""
+    rig = compute_rig(landmarks)
+    bbox = person.pose_bbox(rig, landmarks, frame_size)
+    x0, y0, x1, y1 = bbox
+    return bbox, (y1 - y0, x1 - x0)
 
-    visuals = service.build_avatar_visuals(rgb, _good_landmarks())
+
+def _scaled_landmarks(scale, offset=(0.0, 0.0)):
+    ox, oy = offset
+    return {name: (x * scale + ox, y * scale + oy, v) for name, (x, y, v) in _good_landmarks().items()}
+
+
+def test_person_cutout_used_when_mask_plausible(monkeypatch):
+    lm = _good_landmarks()
+    _, crop_shape = _crop_shape_for(lm, PERSON_PHOTO_SIZE)
+    rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask(crop_shape)))
+
+    visuals = service.build_avatar_visuals(rgb, lm)
 
     assert visuals["avatar_kind"] == "real_body"
     aw, ah = visuals["avatar_img"].size
     assert (aw, ah) == (visuals["canvas_w"], visuals["canvas_h"])
     # 1:2 width:height canvas (rounding-tolerant).
     assert abs(aw * 2 - ah) <= 1
-    # The avatar image is the real-body cutout, not the drawn mannequin: it carries fully-opaque
-    # pixels wherever the (fake) person mask was set.
+    # The avatar image is the real-body cutout, not line art: it carries fully-opaque pixels
+    # wherever the (fake) person mask was set.
     alpha = np.array(visuals["avatar_img"])[:, :, 3]
     assert alpha.max() == 255
 
 
-def test_person_cutout_falls_back_to_drawn_avatar_when_mask_empty(monkeypatch):
+def test_person_cutout_falls_back_to_photo_crop_when_mask_empty(monkeypatch):
+    """A3 change 2026-09-27: no mannequin at all -- a failed/empty mask falls back to a photo
+    crop of the person, never the drawn line art."""
     rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
-    empty_mask = np.zeros((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0]), dtype=np.uint8)
+    empty_mask = np.zeros((10, 10), dtype=np.uint8)  # any all-background mask -- shape irrelevant, see build_person_cutout's early return
     monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(empty_mask))
-    monkeypatch.setattr(skin, "image_segmenter", lambda: _fake_segmenter_with_mask(empty_mask))
-    monkeypatch.setattr(face, "detect_face_box_near", lambda rgb, head_center, head_radius: None)
 
     visuals = service.build_avatar_visuals(rgb, _good_landmarks())
 
-    assert visuals["avatar_kind"] == "drawn"
+    assert visuals["avatar_kind"] == "photo_crop"
+    assert visuals["avatar_kind"] != "drawn"
     assert visuals["avatar_img"].size == visuals["wireframe_img"].size
+    # Still a real photo, not a blank/transparent image: the interior (away from the vignette
+    # edge) carries the source photo's own pixel color.
+    arr = np.array(visuals["avatar_img"])
+    cx, cy = arr.shape[1] // 2, arr.shape[0] // 2
+    assert tuple(arr[cy, cx][:3]) == (40, 40, 40)
+    assert arr[cy, cx][3] > 200  # opaque at the center
+
+
+def test_small_person_in_landscape_frame_still_gets_real_body_avatar(monkeypatch):
+    """Regression (2026-09-27): a live webcam scan is landscape with the person standing far
+    back -- a small fraction of the FULL FRAME (this is exactly what made avatar_858d48,
+    avatar_29f549, and avatar_d0809f fall back). Segmenting only the person's own pose bbox
+    (person.pose_bbox), not the whole frame, must still succeed even though the person is well
+    under MIN_PERSON_FRACTION of the frame overall."""
+    frame_size = (1080, 608)  # landscape, like a laptop webcam
+    landmarks = _scaled_landmarks(0.2, offset=(480.0, 200.0))
+    rgb = np.full((frame_size[1], frame_size[0], 3), (40, 40, 40), dtype=np.uint8)
+
+    bbox, crop_shape = _crop_shape_for(landmarks, frame_size)
+    bx0, by0, bx1, by1 = bbox
+    crop_fraction_of_frame = ((bx1 - bx0) * (by1 - by0)) / (frame_size[0] * frame_size[1])
+    assert crop_fraction_of_frame < person.MIN_PERSON_FRACTION, (
+        "test setup: the person must be a tiny fraction of the FULL frame for this regression to mean anything"
+    )
+
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask(crop_shape)))
+    visuals = service.build_avatar_visuals(rgb, landmarks)
+
+    assert visuals["avatar_kind"] == "real_body"
+    assert visuals["avatar_img"].size == visuals["wireframe_img"].size
+    assert abs(visuals["canvas_w"] * 2 - visuals["canvas_h"]) <= 1
 
 
 def test_local_composite_places_garments_on_real_body_canvas(tmp_path, monkeypatch):
     """A5, on the NEW canvas geometry: garments still land where the (translated) rig says."""
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    lm = _good_landmarks()
+    _, crop_shape = _crop_shape_for(lm, PERSON_PHOTO_SIZE)
     rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
-    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask()))
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask(crop_shape)))
 
-    visuals = service.build_avatar_visuals(rgb, _good_landmarks())
+    visuals = service.build_avatar_visuals(rgb, lm)
     assert visuals["avatar_kind"] == "real_body"
     rig, canvas_size = visuals["rig_local"], (visuals["canvas_w"], visuals["canvas_h"])
 
@@ -337,7 +388,8 @@ def test_local_composite_places_garments_on_real_body_canvas(tmp_path, monkeypat
 def test_scan_endpoint_produces_real_body_avatar_on_1to2_canvas(client, memory_db, monkeypatch, tmp_path):
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
     monkeypatch.setattr("backend.avatar.service.detect_landmarks", lambda rgb: _good_landmarks())
-    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask()))
+    _, crop_shape = _crop_shape_for(_good_landmarks(), PERSON_PHOTO_SIZE)
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask(crop_shape)))
 
     photo = Image.new("RGB", PERSON_PHOTO_SIZE, (40, 40, 40))
     buf = io.BytesIO()
@@ -795,8 +847,8 @@ def test_verify_samples_pose_detected_on_generated_image_when_available(monkeypa
     img[:, :] = (0, 255, 0)  # green background everywhere except the painted patches below
 
     shifted_points = {name: (x, y) for name, (x, y, _v) in shifted.items()}
-    top_point = verify._region_point(GarmentType.shirt, shifted_points)
-    bottom_point = verify._region_point(GarmentType.pants, shifted_points)
+    top_point = verify._region_points(GarmentType.shirt, shifted_points)[0]
+    bottom_point = verify._region_points(GarmentType.pants, shifted_points)[0]
     _paint_patch(img, top_point, (255, 0, 0))
     _paint_patch(img, bottom_point, (0, 0, 255))
 
@@ -845,6 +897,38 @@ def test_jacket_present_skips_top_verification(monkeypatch):
     ok, reason = verify.verify_colors(
         img, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants, jacket=jacket,
     )
+    assert ok, reason
+
+
+def test_jacket_samples_best_of_several_candidate_points(monkeypatch):
+    """ISSUES #21 (2026-09-27): a jacket worn open/off-the-shoulder can leave the near arm's
+    shoulder-elbow midpoint sampling bare skin or the top underneath, while the jacket fabric is
+    actually at the other arm (or lower, near an elbow). One sample point isn't reliable across
+    poses -- verify.py now tries a few (both arms' shoulder-elbow midpoints, plus both elbows) and
+    keeps the closest match, mirroring the primary/secondary "best of a few" match already used
+    for stored colors. Three of the four candidates here land on background/skin (wrong); only
+    the far (right) elbow lands on the actual jacket -- the render must still pass."""
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    # Landmarks spaced well apart (further than a patch width) so each candidate point's sample
+    # box can't bleed into a neighboring one.
+    source_landmarks = {
+        "left_shoulder": [300.0, 150.0], "right_shoulder": [100.0, 150.0],
+        "left_elbow": [300.0, 400.0], "right_elbow": [100.0, 400.0],
+        "left_hip": [250.0, 600.0], "right_hip": [150.0, 600.0],
+        "left_knee": [250.0, 700.0], "right_knee": [150.0, 700.0],
+    }
+    size = (450, 750)
+    img = np.full((size[1], size[0], 3), (128, 128, 128), dtype=np.uint8)  # background/skin: gray
+    _paint_patch(img, (200.0, 635.0), (0, 0, 255))   # pants sample point -> blue, matches pants
+    _paint_patch(img, (100.0, 400.0), (0, 255, 0))   # right elbow only -> green, matches jacket
+    # left shoulder-elbow midpoint (300,275), right shoulder-elbow midpoint (100,275), and left
+    # elbow (300,400) are left gray -- three of four jacket candidates are "wrong".
+
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+    jacket = (GarmentType.jacket, {"primary_color": {"lab": GREEN_LAB}})
+
+    ok, reason = verify.verify_colors(img, source_landmarks, size, top=shirt, bottom=pants, jacket=jacket)
     assert ok, reason
 
 
@@ -952,7 +1036,8 @@ def test_generate_tryon_sends_image_timeout_not_local_wait_timeout(monkeypatch):
 
 def test_prompt_v2_dress_also_describes_the_bottom():
     from backend.avatar.prompt import PROMPT_VERSION, build_prompt
-    assert PROMPT_VERSION == "v2"
+    assert PROMPT_VERSION == "v3"
+    assert "must not be edited or modified" in build_prompt(has_jacket=False, is_dress=False)
     text = build_prompt(has_jacket=False, is_dress=True)
     assert "third image is a bottom" in text
     assert "dress worn over this bottom" in text
