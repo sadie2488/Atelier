@@ -485,3 +485,25 @@ def test_archive_item_moves_it_out_of_the_closet(client, memory_db):
     assert client.get(f"/api/items/{doc['id']}").json()["error"]["code"] == "not_found"
     assert memory_db["items_archive"].find_one({"id": doc["id"]})["id"] == doc["id"]
     assert client.delete(f"/api/items/{doc['id']}").json()["error"]["code"] == "not_found"
+
+
+def test_flatlay_no_alpha_keeps_garment_whole():
+    """No-alpha flat-lay on light grey with a soft floor shadow: the garment (with a
+    background-colored button/highlight inside it) comes out whole, shadow trimmed, and
+    generous >= balanced >= tight."""
+    import cv2
+    import numpy as np
+    from backend.vision.flatlay import _masks
+    h, w = 400, 300
+    gt = np.zeros((h, w), bool)
+    gt[60:330, 70:230] = True
+    rgb = np.full((h, w, 3), 238, np.float32)
+    sh = cv2.GaussianBlur(np.roll(np.roll(gt, 14, 0), 8, 1).astype(np.float32), (0, 0), 10) * 0.15
+    rgb *= (1 - sh[..., None])
+    rgb[gt] = (150, 40, 50)
+    rgb[180:200, 140:160] = 238          # background-colored patch inside the garment
+    tight, bal, gen = _masks(rgb.round().astype(np.uint8), None)
+    iou = (bal & gt).sum() / (bal | gt).sum()
+    assert iou > 0.95
+    assert bal[180:200, 140:160].all()
+    assert (gen | bal).sum() == gen.sum() and (tight & bal).sum() == tight.sum()

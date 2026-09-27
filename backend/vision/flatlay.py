@@ -5,7 +5,7 @@ Segmentation: if the source image carries a real alpha channel (a pre-cut produc
 alpha IS the garment mask. Otherwise the background is estimated from the border (k-means of a
 border band, so a painted checkerboard's two colors plus smudges are all covered), background-like
 pixels connected to the border are flood-filled away, the largest remaining component is
-hole-filled and refined with GrabCut.
+hole-filled (never shrunk by GrabCut), and soft floor shadow outside the garment hull is trimmed.
 
 Anchors: there is no model, so the contract's pose landmarks are synthesized from the garment
 mask geometry (shoulders at the top corners of the body, hips near the hem / waistband corners,
@@ -76,38 +76,75 @@ def _k(r):
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
 
 
-def _border_segment(rgb: np.ndarray, tol: float) -> np.ndarray:
-    h, w = rgb.shape[:2]
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+def _to_lab(rgb: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(rgb.astype(np.float32) / 255.0, cv2.COLOR_RGB2LAB)   # true L 0-100
+
+
+def _bg_model(lab: np.ndarray) -> tuple[np.ndarray, float]:
+    """Border band -> (background centers Kx3, noise). One center (median) for a plain studio
+    background; two for a painted checkerboard (both dominant border colors)."""
+    h, w = lab.shape[:2]
     b = max(4, int(0.03 * min(h, w)))
     band = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3),
                            lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
-    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
-    _, _, centers = cv2.kmeans(band, 4, None, crit, 2, cv2.KMEANS_PP_CENTERS)
+    med = np.median(band, axis=0)
+    centers = med[None]
+    d1 = np.linalg.norm(band - med, axis=1)
+    if np.percentile(d1, 75) > 6.0:   # two-tone border (fake checkerboard)
+        crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 0.5)
+        _, lbl, c2 = cv2.kmeans(band.astype(np.float32), 2, None, crit, 2, cv2.KMEANS_PP_CENTERS)
+        frac = np.bincount(lbl.ravel(), minlength=2) / len(lbl)
+        centers = c2[frac >= 0.15]
+    d = np.min(np.stack([np.linalg.norm(band - c, axis=1) for c in centers]), axis=0)
+    return centers, float(np.percentile(d, 90))
+
+
+def _border_bg(lab: np.ndarray, centers: np.ndarray, tol: float) -> np.ndarray:
+    """Pixels within tol of a background color AND 4-connected to the image border."""
     d = np.min(np.stack([np.linalg.norm(lab - c, axis=2) for c in centers]), axis=0)
-    bglike = (d < tol).astype(np.uint8)
-    n, cc = cv2.connectedComponents(bglike, connectivity=4)
+    bglike = d < tol
+    bglike = bglike.astype(np.uint8)
+    # flood only through thick background (thin paths of bg-colored garment pixels, e.g. a
+    # white shirt's shading on grey, must not let the flood leak in), then regrow the edge
+    thick = cv2.morphologyEx(bglike, cv2.MORPH_OPEN, _k(3))
+    _, cc = cv2.connectedComponents(thick, connectivity=4)
     edge_ids = set(np.unique(np.concatenate([cc[0], cc[-1], cc[:, 0], cc[:, -1]]))) - {0}
-    bg = np.isin(cc, list(edge_ids)) & (bglike > 0)
-    fg = ~bg
-    fg = cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_OPEN, _k(2)) > 0
-    fg = _fill_holes(_largest_cc(fg, 0.05))
-    if fg.sum() < 0.01 * h * w:
+    core = np.isin(cc, list(edge_ids)).astype(np.uint8)
+    return (cv2.dilate(core, _k(4)) > 0) & (bglike > 0)
+
+
+def _clean(fg: np.ndarray) -> np.ndarray:
+    fg = cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_CLOSE, _k(2)) > 0
+    fg = cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_OPEN, _k(1)) > 0
+    return _fill_holes(_largest_cc(fg, 0.05))
+
+
+def _shadow_trim(lab: np.ndarray, fg: np.ndarray, centers: np.ndarray, tol: float) -> np.ndarray:
+    """Drop soft floor shadow: only slightly darker than the background, near-neutral, and
+    not adjacent to the garment core. Enclosed regions are restored by hole filling."""
+    bgc = centers[np.argmax(centers[:, 0])]
+    dl = bgc[0] - lab[..., 0]
+    dab = np.linalg.norm(lab[..., 1:] - bgc[1:], axis=2)
+    shadow = fg & (dl > 0) & (dl < 22.0) & (dab < max(4.0, tol))
+    core = _largest_cc(cv2.morphologyEx((fg & ~shadow).astype(np.uint8), cv2.MORPH_OPEN, _k(2)) > 0, 0.05)
+    if core.sum() < 0.3 * fg.sum():
+        return fg   # garment itself is shadow-colored (grey on grey): don't trim
+    near = cv2.dilate(core.astype(np.uint8), _k(3)) > 0
+    return _fill_holes(fg & ~(shadow & ~near))   # enclosed shadow-colored parts come back
+
+
+def _border_segment(rgb: np.ndarray, gain: float) -> np.ndarray:
+    """Background = near a border color (tolerance adaptive to the border's own noise) and
+    connected to the border; garment = largest remaining component with ALL holes filled."""
+    h, w = rgb.shape[:2]
+    lab = _to_lab(rgb)
+    centers, noise = _bg_model(lab)
+    tol = max(1.5, gain * max(noise, 0.8))
+    bg = _border_bg(lab, centers, tol)
+    fg = _clean(~bg)
+    if fg.sum() < 0.01 * h * w or fg.sum() > 0.97 * h * w:
         raise VisionError(ErrorCode.analyze_failed, "No garment found on the flat-lay background.")
-    # GrabCut refinement
-    gc = np.full((h, w), cv2.GC_PR_BGD, np.uint8)
-    gc[fg] = cv2.GC_PR_FGD
-    gc[cv2.erode(fg.astype(np.uint8), _k(6)) > 0] = cv2.GC_FGD
-    gc[cv2.erode(bg.astype(np.uint8), _k(6)) > 0] = cv2.GC_BGD
-    try:
-        bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
-        cv2.grabCut(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), gc, None, bgd, fgd, 3, cv2.GC_INIT_WITH_MASK)
-        ref = (gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)
-        ref = _fill_holes(_largest_cc(ref, 0.05))
-        if ref.sum() > 0.5 * fg.sum():
-            fg = ref
-    except cv2.error:
-        pass
+    fg = _clean(_shadow_trim(lab, fg, centers, tol))
     return fg
 
 
@@ -119,16 +156,23 @@ def _masks(rgb: np.ndarray, alpha: np.ndarray | None) -> list[np.ndarray]:
         gen = _largest_cc(alpha >= 40, 0.02)
         return [tight & base, base, gen]
     bal, err = None, None
-    for tol in (8.0, 5.0, 3.0, 2.0):   # white-on-white needs a low tolerance
+    for gain in (3.0, 2.0, 1.4):   # white-on-white needs a low tolerance
         try:
-            bal = _border_segment(rgb, tol)
+            bal = _border_segment(rgb, gain)
             break
         except VisionError as e:
             err = e
     if bal is None:
         raise err
-    tight = cv2.erode(bal.astype(np.uint8), _k(2)) > 0
-    gen = cv2.dilate(bal.astype(np.uint8), _k(2)) > 0
+    try:
+        tight = _border_segment(rgb, gain * 1.6) & bal
+    except VisionError:
+        tight = cv2.erode(bal.astype(np.uint8), _k(1)) > 0
+    try:
+        gen = _border_segment(rgb, gain * 0.6) | bal
+    except VisionError:
+        gen = bal
+    gen = _fill_holes(cv2.dilate(gen.astype(np.uint8), _k(1)) > 0)
     return [tight, bal, gen]
 
 
