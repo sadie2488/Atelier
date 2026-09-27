@@ -4,6 +4,7 @@ or "no image in the response" -- raises GenerationError so callers can treat the
 back off, mark the render `failed`, never raise to the user (A-R12, A-R15).
 """
 import io
+import time
 from typing import Optional
 
 from PIL import Image
@@ -29,6 +30,23 @@ def _shrink(img: Image.Image, max_long_side: int = GEN_INPUT_MAX_LONG_SIDE) -> I
         return img
     scale = max_long_side / long_side
     return img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+
+
+# One retry on a transient failure (human-approved): wait RETRY_WAIT_SECONDS, then try once more
+# with whatever is left of GEMINI_IMAGE_TIMEOUT_SECONDS -- only if at least RETRY_MIN_REMAINING_SECONDS
+# remains (Gemini rejects deadlines under 10s). Non-transient errors (400, safety, bad key) never retry.
+RETRY_WAIT_SECONDS = 2.0
+RETRY_MIN_REMAINING_SECONDS = 15.0
+_TRANSIENT_HTTP_CODES = {429, 500, 503, 504}
+_TRANSIENT_MARKERS = ("RESOURCE_EXHAUSTED", "UNAVAILABLE", "DEADLINE", "TIMEOUT", "TIMED OUT")
+
+
+def _is_transient(e: BaseException) -> bool:
+    code = getattr(e, "code", None)
+    if isinstance(code, int):
+        return code in _TRANSIENT_HTTP_CODES
+    text = f"{type(e).__name__} {e}".upper()
+    return any(m in text for m in _TRANSIENT_MARKERS)
 
 
 class GenerationError(Exception):
@@ -68,19 +86,31 @@ def generate_tryon(
         contents.append(_shrink(_flatten(jacket_img)))
 
     client = genai.Client(api_key=config.GEMINI_API_KEY)
-    try:
-        response = client.models.generate_content(
-            model=model or MODEL,
-            contents=contents,
-            config={
-                "http_options": {"timeout": int(config.GEMINI_IMAGE_TIMEOUT_SECONDS * 1000)},
-                "image_config": {"aspect_ratio": GEN_OUTPUT_ASPECT_RATIO},
-            },
-        )
-    except errors.APIError as e:
-        raise GenerationError(f"Gemini call failed: {e}") from e
-    except Exception as e:  # network errors, SDK errors -- never let this reach the request path
-        raise GenerationError(f"Gemini call failed: {type(e).__name__}: {e}") from e
+    budget = float(config.GEMINI_IMAGE_TIMEOUT_SECONDS)
+    started = time.monotonic()
+    timeout_s = budget
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = client.models.generate_content(
+                model=model or MODEL,
+                contents=contents,
+                config={
+                    "http_options": {"timeout": int(timeout_s * 1000)},
+                    "image_config": {"aspect_ratio": GEN_OUTPUT_ASPECT_RATIO},
+                },
+            )
+            break
+        except Exception as e:  # network errors, SDK errors -- never let this reach the request path
+            remaining = budget - (time.monotonic() - started) - RETRY_WAIT_SECONDS
+            if attempt == 1 and _is_transient(e) and remaining >= RETRY_MIN_REMAINING_SECONDS:
+                time.sleep(RETRY_WAIT_SECONDS)
+                timeout_s = remaining
+                continue
+            if isinstance(e, errors.APIError):
+                raise GenerationError(f"Gemini call failed: {e}") from e
+            raise GenerationError(f"Gemini call failed: {type(e).__name__}: {e}") from e
 
     for candidate in getattr(response, "candidates", None) or []:
         for part in getattr(candidate.content, "parts", None) or []:

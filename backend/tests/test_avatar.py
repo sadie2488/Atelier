@@ -1668,3 +1668,325 @@ def test_real_photo_feet_cropped_builds_padded_avatar():
     vis = service.build_avatar_visuals(rgb, lm)
     rig_ankle = max(vis["rig_local"].landmarks["left_ankle"][1], vis["rig_local"].landmarks["right_ankle"][1])
     assert rig_ankle < vis["canvas_h"]
+
+
+# ---------------------------------------------------------------- Gemini one-shot transient retry
+
+def _fake_genai_client(monkeypatch, outcomes, captured):
+    """outcomes: list of exceptions (raised) or None (return a response with one image)."""
+    from google.genai import errors as genai_errors  # noqa: F401  (ensures the SDK is importable)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (10, 20, 30)).save(buf, format="PNG")
+    png = buf.getvalue()
+    part = type("P", (), {"inline_data": type("D", (), {"data": png})()})()
+    ok_response = type("R", (), {"candidates": [type("C", (), {"content": type("X", (), {"parts": [part]})()})()]})()
+
+    class _FakeModels:
+        def generate_content(self, model, contents, config):
+            captured.append(config["http_options"]["timeout"])
+            outcome = outcomes.pop(0)
+            if outcome is not None:
+                raise outcome
+            return ok_response
+
+    class _FakeClient:
+        def __init__(self, api_key):
+            self.models = _FakeModels()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _FakeClient)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key-for-test")
+    monkeypatch.setattr(gen_client, "RETRY_WAIT_SECONDS", 0.0)
+
+
+def test_generate_tryon_retries_once_on_429_then_succeeds(monkeypatch):
+    from google.genai import errors as genai_errors
+    captured = []
+    err = genai_errors.APIError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+    _fake_genai_client(monkeypatch, [err, None], captured)
+    out = _real_generate_tryon(Image.new("RGB", (10, 10)), Image.new("RGBA", (10, 10)), None, None, False)
+    assert out.size == (8, 8)
+    assert len(captured) == 2
+    assert captured[1] >= gen_client.RETRY_MIN_REMAINING_SECONDS * 1000
+
+
+def test_generate_tryon_does_not_retry_400(monkeypatch):
+    from google.genai import errors as genai_errors
+    captured = []
+    err = genai_errors.ClientError(400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}})
+    _fake_genai_client(monkeypatch, [err, None], captured)
+    with pytest.raises(gen_client.GenerationError):
+        _real_generate_tryon(Image.new("RGB", (10, 10)), Image.new("RGBA", (10, 10)), None, None, False)
+    assert len(captured) == 1
+
+
+def test_generate_tryon_retries_at_most_once(monkeypatch):
+    from google.genai import errors as genai_errors
+    captured = []
+    mk = lambda: genai_errors.ServerError(503, {"error": {"code": 503, "message": "x", "status": "UNAVAILABLE"}})
+    _fake_genai_client(monkeypatch, [mk(), mk(), None], captured)
+    with pytest.raises(gen_client.GenerationError):
+        _real_generate_tryon(Image.new("RGB", (10, 10)), Image.new("RGBA", (10, 10)), None, None, False)
+    assert len(captured) == 2
+
+
+def test_generate_tryon_no_retry_when_budget_spent(monkeypatch):
+    captured = []
+    _fake_genai_client(monkeypatch, [TimeoutError("read timed out"), None], captured)
+    monkeypatch.setattr(config, "GEMINI_IMAGE_TIMEOUT_SECONDS", 10.0)  # < RETRY_MIN_REMAINING
+    with pytest.raises(gen_client.GenerationError):
+        _real_generate_tryon(Image.new("RGB", (10, 10)), Image.new("RGBA", (10, 10)), None, None, False)
+    assert len(captured) == 1
+
+
+# ---------------------------------------------------------------- prewarm correctness: claim + attempt
+
+def _pending_doc(memory_db, render_id="r_claim", attempt="att1", claimed=False, **extra):
+    doc = {"render_id": render_id, "status": "pending", "local_url": "/media/renders/x.png",
+           "generated_url": None, "pending_since": datetime.now(timezone.utc),
+           "attempt": attempt, "claimed": claimed, **extra}
+    memory_db["renders"].insert_one(doc)
+    return doc
+
+
+def test_run_claims_job_so_only_one_worker_calls_gemini(memory_db, monkeypatch):
+    _pending_doc(memory_db)
+    calls = []
+    monkeypatch.setattr(gen_client, "generate_tryon", lambda *a, **k: calls.append(1) or (_ for _ in ()).throw(
+        gen_client.GenerationError("x")))
+    monkeypatch.setattr(background.media, "load_media", lambda url: Image.new("RGBA", (10, 10), (0, 0, 0, 255)))
+    item = {"garment_type": "shirt", "cutout_url": "/media/items/a.png"}
+    avatar = {"avatar_url": "/media/avatars/a.png"}
+    background._run("r_claim", avatar, item, item, None, memory_db["renders"], "att1")
+    background._run("r_claim", avatar, item, item, None, memory_db["renders"], "att1")
+    assert calls == [1]
+    doc = memory_db["renders"].find_one({"render_id": "r_claim"})
+    assert doc["status"] == "failed" and doc["claimed"] is True and doc["started_at"] is None
+
+
+def test_stale_attempt_neither_runs_nor_overwrites(memory_db, monkeypatch):
+    _pending_doc(memory_db, attempt="new")
+    calls = []
+    monkeypatch.setattr(gen_client, "generate_tryon", lambda *a, **k: calls.append(1))
+    background._run("r_claim", {}, {}, {}, None, memory_db["renders"], "old")
+    assert calls == []
+    background._update(memory_db["renders"], "r_claim", background.RenderStatus.done, "/media/x.png", "old")
+    doc = memory_db["renders"].find_one({"render_id": "r_claim"})
+    assert doc["status"] == "pending" and doc["generated_url"] is None and doc["claimed"] is False
+
+
+def test_settle_if_stale_measures_from_started_at(memory_db):
+    old = datetime.now(timezone.utc) - timedelta(seconds=service.PENDING_STALE_SECONDS + 30)
+    doc = _pending_doc(memory_db, claimed=True, started_at=datetime.now(timezone.utc))
+    doc["pending_since"] = old
+    assert service.settle_if_stale(doc, memory_db["renders"])["status"] == "pending"
+    doc["started_at"] = old
+    assert service.settle_if_stale(doc, memory_db["renders"])["status"] == "failed"
+
+
+def test_cache_hit_on_queued_prewarm_render_promotes_to_user_executor(client, memory_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
+    _seed_items(memory_db, tmp_path)
+    rid = ids.render_id_for(avatar["avatar_id"], "top_aaaaaa", "bottom_bbbbbb", None)
+    _pending_doc(memory_db, render_id=rid, attempt="q1", claimed=False)
+    submits = []
+    monkeypatch.setattr(background, "submit", lambda *a, **k: submits.append((a[0], k)))
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    assert resp.status_code == 200 and resp.json()["status"] == "pending"
+    assert submits == [(rid, {"prewarm": False, "attempt": "q1"})]
+    # already claimed (running) -> not resubmitted
+    memory_db["renders"].update_one({"render_id": rid}, {"$set": {"claimed": True}})
+    client.post("/api/render", json=body)
+    assert len(submits) == 1
+
+
+def test_prewarm_puts_planned_outfits_first(memory_db, monkeypatch, tmp_path):
+    import sys
+    import types
+    from backend.avatar import prewarm
+    items = _seed_fixture_closet(memory_db, tmp_path)
+    docs = list(memory_db["items"].find({}))
+    tops = [i["id"] for i in items if i["category"] == "tops"]
+    bottoms = [i["id"] for i in items if i["category"] == "bottoms"]
+    planned = [(tops[-1], bottoms[-1], None), ("top_missing", bottoms[0], None)]
+    fake = types.ModuleType("backend.styling.planned")
+    fake.planned_outfits = lambda: planned
+    monkeypatch.setitem(sys.modules, "backend.styling.planned", fake)
+    out = prewarm.likely_outfits(docs)
+    assert out[0] == planned[0]
+    assert ("top_missing", bottoms[0], None) not in out
+    assert len(out) <= prewarm.PREWARM_MAX_OUTFITS and len(set(out)) == len(out)
+
+
+def test_feet_shadow_trim_keeps_dark_shoe_below_ankle():
+    # Foot-cut fix: a black shoe below the ankle (on a light floor) is the edge of its own foot's
+    # mask run, not an interior bridge between the feet -- the shadow trim must keep it.
+    h, w = 60, 80
+    rgb = np.full((h, w, 3), (220, 220, 225), dtype=np.uint8)
+    mask = np.zeros((h, w), dtype=bool)
+    mask[:40, 15:25] = True  # left leg
+    mask[:40, 55:65] = True  # right leg
+    rgb[:40, 15:25] = rgb[:40, 55:65] = (150, 110, 90)  # skin
+    for x0, x1 in ((12, 28), (52, 68)):  # black flats below each ankle
+        mask[40:50, x0:x1] = True
+        rgb[40:50, x0:x1] = (20, 20, 22)
+    out = person._trim_feet_shadow(mask, rgb, ankle_y=38.0, ankle_xs=(20.0, 60.0))
+    assert out[40:50, 12:28].all() and out[40:50, 52:68].all()
+
+
+def test_person_mask_touching_crop_edge_grows_crop():
+    mask = np.zeros((100, 50), dtype=bool)
+    mask[10:90, 0:30] = True  # touches the crop's left edge only
+    assert person._grow_bbox_on_edge_touch(mask, (100, 50, 150, 150), (400, 300)) == (88, 50, 150, 150)
+    # clamped to the frame
+    assert person._grow_bbox_on_edge_touch(mask, (5, 50, 55, 150), (400, 300)) == (0, 50, 55, 150)
+    # no edge touched -> unchanged
+    inner = np.zeros((100, 50), dtype=bool)
+    inner[10:90, 10:40] = True
+    assert person._grow_bbox_on_edge_touch(inner, (100, 50, 150, 150), (400, 300)) == (100, 50, 150, 150)
+
+
+def test_build_person_cutout_resegments_grown_crop(monkeypatch):
+    # The first segmentation touches the crop's left edge -> the crop grows left and the person
+    # (a foot) that extends past the pose box is kept in the returned cutout.
+    rgb = np.full((300, 400, 3), 200, dtype=np.uint8)
+    seen = []
+
+    def fake_cats(crop_rgb):
+        ch, cw = crop_rgb.shape[:2]
+        seen.append((ch, cw))
+        cats = np.zeros((ch, cw), dtype=np.uint8)
+        if len(seen) == 1:
+            cats[5:ch - 5, 0:cw - 10] = 4
+        else:
+            cats[5:ch - 5, 3:cw - 10] = 4
+        return cats
+
+    monkeypatch.setattr(person, "_segment_categories_in_crop", fake_cats)
+    out = person.build_person_cutout(rgb, (100, 50, 200, 250))
+    assert out is not None
+    assert seen == [(200, 100), (200, 125)]
+    _img, full_bbox = out
+    assert full_bbox[0] < 100  # the cutout now reaches past the original pose box
+
+
+# ---------------------------------------------------------------- verification in the cutout's frame
+
+def test_verification_uses_cutout_canvas_frame_not_source_photo(memory_db, monkeypatch):
+    """Gemini gets the avatar cutout canvas; the fallback sample points must come from the canvas
+    rig, not the original photo's landmarks (which here point at empty white background)."""
+    canvas = (200, 400)
+    rig_lms = {
+        "nose": [100, 50], "left_shoulder": [130, 100], "right_shoulder": [70, 100],
+        "left_elbow": [140, 150], "right_elbow": [60, 150], "left_wrist": [140, 195], "right_wrist": [60, 195],
+        "left_hip": [120, 200], "right_hip": [80, 200], "left_knee": [115, 290], "right_knee": [85, 290],
+        "left_ankle": [112, 380], "right_ankle": [88, 380],
+    }
+    # Source photo is 1000x1000 with the person far to the right: scaled into the generated frame
+    # these points land on white.
+    source_lms = {k: [v[0] + 800, v[1] * 2.0] for k, v in rig_lms.items()}
+    avatar_doc = {"avatar_url": "/media/avatars/a.png", "rig": {"landmarks": rig_lms},
+                  "canvas_w": canvas[0], "canvas_h": canvas[1],
+                  "source_landmarks": source_lms, "source_w": 1000, "source_h": 1000}
+
+    red, blue = (200, 30, 30), (30, 40, 160)
+    gen = np.full((800, 400, 3), 255, np.uint8)          # generated at 2x the canvas
+    gen[180:400, 80:320] = red                           # top: canvas y 90..200
+    gen[400:780, 80:320] = blue                          # bottom: canvas y 200..390
+    lab = lambda rgb: [float(x) for x in verify._rgb_array_to_lab(np.array([[rgb]], np.uint8))[0, 0]]
+    top = {"garment_type": "shirt", "cutout_url": "/media/items/t.png", "primary_color": {"lab": lab(red)}}
+    bottom = {"garment_type": "pants", "cutout_url": "/media/items/b.png", "primary_color": {"lab": lab(blue)}}
+
+    monkeypatch.setattr(background.media, "load_media",
+                        lambda url: Image.new("RGBA", canvas if "avatars" in url else (20, 20), (0, 0, 0, 255)))
+    monkeypatch.setattr(gen_client, "generate_tryon", lambda *a, **k: Image.fromarray(gen))
+    monkeypatch.setattr(verify, "_generated_points", lambda rgb: None)   # force the fallback path
+    monkeypatch.setattr(verify, "verify_identity", lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(person, "cut_out_generated", lambda rgb: None)
+
+    _pending_doc(memory_db, render_id="r_frame", attempt="a1")
+    background._run("r_frame", avatar_doc, top, bottom, None, memory_db["renders"], "a1")
+    doc = memory_db["renders"].find_one({"render_id": "r_frame"})
+    assert doc["status"] == "done", doc
+
+    lms, size = background._cutout_frame_landmarks(avatar_doc, canvas)
+    assert size == canvas and lms["left_hip"] == [120.0, 200.0]
+
+
+# ---------------------------------------------------------------- robustness: atomic writes, warmup
+
+def test_load_media_cache_write_is_atomic(monkeypatch, memory_media):
+    from backend.avatar import media
+    buf = io.BytesIO()
+    Image.new("RGBA", (4, 4), (1, 2, 3, 255)).save(buf, format="PNG")
+    memory_media["items/x.png"] = buf.getvalue()
+    replaced = []
+    import os as _os
+    real_replace = _os.replace
+    monkeypatch.setattr(media.os, "replace", lambda a, b: replaced.append((str(a), str(b))) or real_replace(a, b))
+    img = media.load_media("/media/items/x.png")
+    assert img.size == (4, 4)
+    assert len(replaced) == 1 and replaced[0][0].endswith(".part") and replaced[0][1].endswith("x.png")
+    assert not list((config.MEDIA_DIR / "items").glob("*.part"))
+
+
+def test_model_download_is_atomic(monkeypatch, tmp_path):
+    from backend.avatar import mp_models
+    target = tmp_path / "m.task"
+
+    def fake_retrieve(url, dest):
+        assert str(dest).endswith(".part")
+        Path(dest).write_bytes(b"model")
+    monkeypatch.setattr(mp_models.urllib.request, "urlretrieve", fake_retrieve)
+    mp_models._ensure(target, "http://example.invalid/m.task")
+    assert target.read_bytes() == b"model" and not list(tmp_path.glob("*.part"))
+
+    def failing(url, dest):
+        Path(dest).write_bytes(b"partial")
+        raise OSError("network down")
+    monkeypatch.setattr(mp_models.urllib.request, "urlretrieve", failing)
+    with pytest.raises(RuntimeError):
+        mp_models._ensure(tmp_path / "n.task", "http://example.invalid/n.task")
+    assert not (tmp_path / "n.task").exists() and not list(tmp_path.glob("*.part"))
+
+
+def test_warmup_loads_all_models_and_never_raises(monkeypatch):
+    import backend.avatar as avatar_pkg
+    from backend.avatar import mp_models
+    loaded = []
+    monkeypatch.setattr(mp_models, "pose_landmarker", lambda: loaded.append("pose"))
+    monkeypatch.setattr(mp_models, "image_segmenter", lambda: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr(mp_models, "face_detector", lambda: loaded.append("face"))
+    t = avatar_pkg.warmup()
+    t.join(5)
+    assert loaded == ["pose", "face"]
+
+
+# ---------------------------------------------------------------- phone upload page
+
+def test_phone_page_serves_upload_form(client):
+    resp = client.get("/api/phone")
+    assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/html")
+    html = resp.text
+    assert 'type="file"' in html and 'accept="image/*"' in html and 'capture="environment"' in html
+    assert "/api/avatar/scan" in html and "Take photo" in html and "Gemini API" in html
+    assert "http://" not in html and "https://" not in html   # no external assets
+
+
+def test_phone_latest_redirects_to_newest_avatar(client, memory_db):
+    now = datetime.now(timezone.utc)
+    memory_db["avatars"].insert_one({"avatar_id": "avatar_old111", "created_at": now - timedelta(minutes=5)})
+    memory_db["avatars"].insert_one({"avatar_id": "avatar_new222", "created_at": now})
+    memory_db["avatars"].insert_one({"avatar_id": "avatar_mid333", "created_at": now - timedelta(minutes=1)})
+    resp = client.get("/api/phone/latest", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "/scan?backup=avatar_new222"
+
+
+def test_phone_latest_404_when_no_avatar(client):
+    resp = client.get("/api/phone/latest", follow_redirects=False)
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"

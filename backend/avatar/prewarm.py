@@ -28,9 +28,35 @@ PREWARM_MAX_OUTFITS = 6
 _SCHEDULER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="avatar-prewarm")
 
 
+def _planned(item_docs: list[dict]) -> list[tuple[str, str, Optional[str]]]:
+    """The demo's planned outfits (backend/styling/planned.py, env ATELIER_DEMO_OUTFITS) whose
+    garments all exist in this closet. Best-effort: missing module or any error -> []."""
+    try:
+        from backend.styling.planned import planned_outfits
+        planned = list(planned_outfits() or [])
+    except Exception:
+        return []
+    existing = {d.get("id") for d in item_docs}
+    out = []
+    for entry in planned:
+        try:
+            t, b, j = entry
+        except Exception:
+            continue
+        if t in existing and b in existing and (j is None or j in existing) and (t, b, j) not in out:
+            out.append((t, b, j))
+    return out
+
+
 def likely_outfits(item_docs: list[dict], limit: int = PREWARM_MAX_OUTFITS) -> list[tuple[str, str, Optional[str]]]:
-    """-> up to `limit` (top_id, bottom_id, jacket_id), best score first, drawn from the same pool
-    backend/styling/select.py samples "generate outfit" from."""
+    """-> up to `limit` (top_id, bottom_id, jacket_id): the demo's planned outfits first, then
+    best score first from the same pool backend/styling/select.py samples "generate outfit" from."""
+    planned = _planned(item_docs)[:limit]
+    rest = [c for c in _likely_from_pool(item_docs, limit) if c not in planned]
+    return (planned + rest)[:limit]
+
+
+def _likely_from_pool(item_docs: list[dict], limit: int) -> list[tuple[str, str, Optional[str]]]:
     from backend.styling import weights as W
     from backend.styling.strategies import generate_candidates
 

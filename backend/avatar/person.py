@@ -310,6 +310,34 @@ def _trim_feet_shadow(
     return trimmed
 
 
+# Foot-cut fix (2026-09-27, human-flagged, avatar_0342be): the viewer's-right black shoe was
+# missing from the cutout. Masks dumped per stage showed the RAW segmenter output already lacked
+# it (the floor-shadow trim and head trim removed nothing there); the pose-box crop was tight on
+# that side (the hand touched the crop's left edge) and the segmenter, given more context around
+# the body, finds the shoe (dark shoe pixels kept: 116/324 -> ~270-310/324). So when the mask
+# touches a crop side, that side is grown by EDGE_GROW_FRACTION of the crop and re-segmented.
+EDGE_GROW_FRACTION = 0.25
+
+
+def _grow_bbox_on_edge_touch(
+    mask: np.ndarray, bbox: tuple[int, int, int, int], frame_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """-> `bbox` grown by EDGE_GROW_FRACTION on every side the mask touches, clamped to the frame
+    (unchanged when the mask touches no side, or the touched sides are already at the frame edge)."""
+    x0, y0, x1, y1 = bbox
+    fw, fh = frame_size
+    gx, gy = round((x1 - x0) * EDGE_GROW_FRACTION), round((y1 - y0) * EDGE_GROW_FRACTION)
+    if mask[:, 0].any():
+        x0 = max(0, x0 - gx)
+    if mask[:, -1].any():
+        x1 = min(fw, x1 + gx)
+    if mask[0, :].any():
+        y0 = max(0, y0 - gy)
+    if mask[-1, :].any():
+        y1 = min(fh, y1 + gy)
+    return (x0, y0, x1, y1)
+
+
 def build_person_cutout(
     rgb: np.ndarray, bbox: tuple[int, int, int, int], ankle_y: Optional[float] = None,
     shoulder_y: Optional[float] = None, ankle_xs: Optional[tuple[float, float]] = None,
@@ -328,6 +356,17 @@ def build_person_cutout(
     if cats is None:
         return None
     mask = cats != 0
+
+    # Edge-touch regrow: the person mask reaching a crop side means part of the body (a hand,
+    # hair, a foot) extends past the pose box -- grow that side and re-segment once.
+    grown = _grow_bbox_on_edge_touch(mask, bbox, (rgb.shape[1], rgb.shape[0]))
+    if grown != bbox:
+        grown_cats = _segment_categories_in_crop(rgb[grown[1]:grown[3], grown[0]:grown[2]])
+        if grown_cats is not None and grown_cats.shape == (grown[3] - grown[1], grown[2] - grown[0]):
+            bx0, by0, bx1, by1 = grown
+            crop = rgb[by0:by1, bx0:bx1]
+            cats = grown_cats
+            mask = cats != 0
     if mask.sum() < MIN_PERSON_FRACTION * mask.size:
         return None
 

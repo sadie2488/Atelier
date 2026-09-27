@@ -12,6 +12,9 @@ specific to PoseLandmarker's built-in segmentation output, not the standalone Im
 task below: probed directly on this machine (selfie_multiclass, real phone photo) with no
 crash, so A-B5 skin sampling uses it for exposed-skin detection (see skin.py).
 """
+import logging
+import os
+import threading
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
@@ -43,9 +46,17 @@ SEGMENTER_MODEL_URL = (
 def _ensure(path: Path, url: str) -> Path:
     if path.exists() and path.stat().st_size > 0:
         return path
+    # Download to a temp file then os.replace (atomic): a crash or a concurrent first use never
+    # leaves a truncated model file that later loads as garbage.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
     try:
-        urllib.request.urlretrieve(url, path)
+        urllib.request.urlretrieve(url, tmp)
+        os.replace(tmp, path)
     except Exception as e:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise RuntimeError(
             f"Could not download required MediaPipe model {path.name} from {url}: {e}"
         ) from e
@@ -92,3 +103,22 @@ def image_segmenter():
         base_options=base, running_mode=mp_vision.RunningMode.IMAGE, output_category_mask=True,
     )
     return mp_vision.ImageSegmenter.create_from_options(opts)
+
+
+def warmup(background: bool = True):
+    """Load the pose, segmenter and face models once (downloading them if missing) so the first
+    scan doesn't pay for it. Called at app startup; runs in a daemon thread by default and never
+    raises. -> the thread (or None when run inline)."""
+    def _load():
+        for name, loader in (("pose", pose_landmarker), ("segmenter", image_segmenter), ("face", face_detector)):
+            try:
+                loader()
+            except Exception:
+                logging.getLogger(__name__).exception("avatar: warmup of %s model failed", name)
+
+    if not background:
+        _load()
+        return None
+    t = threading.Thread(target=_load, name="avatar-warmup", daemon=True)
+    t.start()
+    return t

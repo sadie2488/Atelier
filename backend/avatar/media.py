@@ -6,6 +6,8 @@ Local disk (config.MEDIA_DIR) is a per-machine cache that a redeploy wipes; dura
 process is persisted there, and every read falls back to it when the local file is missing --
 a fresh deploy, or a read on a different machine than the one that wrote it.
 """
+import os
+import threading
 from pathlib import Path
 
 from PIL import Image
@@ -43,5 +45,8 @@ def load_media(rel_or_url: str) -> Image.Image:
         if data is None:
             raise AvatarError(ErrorCode.internal_error, f"Missing media file: {rel}")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        # temp file + os.replace (atomic): a concurrent reader never sees a half-written PNG.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
     return Image.open(path).convert("RGBA")

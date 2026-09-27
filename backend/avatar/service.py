@@ -8,6 +8,7 @@ whether to start it and returns `pending` in that case, or `failed` if generatio
 possible at all (severability, A-R6).
 """
 import io
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -174,7 +175,9 @@ def settle_if_stale(job: dict, renders_collection) -> dict:
     """
     if job.get("status") != RenderStatus.pending.value:
         return job
-    pending_since = job.get("pending_since")
+    # A claimed (running) job is timed from when it started, not from when it was queued: a
+    # prewarm job can sit queued behind others and must not be reaped the moment it starts.
+    pending_since = job.get("started_at") or job.get("pending_since")
     if pending_since is None:
         return job
     age = (datetime.now(timezone.utc) - pending_since).total_seconds()
@@ -231,9 +234,12 @@ def render(
     }
     if can_generate:
         job["pending_since"] = datetime.now(timezone.utc)  # DB-only; see settle_if_stale()
+        job["attempt"] = uuid.uuid4().hex  # DB-only; background._claim/_update match on it
+        job["claimed"] = False
     renders_collection.insert_one(job)
 
     if can_generate:
-        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection, prewarm=prewarm)
+        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection,
+                          prewarm=prewarm, attempt=job["attempt"])
 
     return job

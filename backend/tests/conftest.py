@@ -4,6 +4,7 @@ Tests run offline: the database is never touched unless a test opts in. Lanes us
 `fixture_items`, `fixture_outfits`, etc. (from contract/fixtures) and `client`.
 """
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -29,13 +30,31 @@ class FakeCursor(list):
 
 
 class FakeCollection:
-    """Just enough of pymongo's Collection for route tests: equality filters only."""
+    """Just enough of pymongo's Collection for route tests: equality filters, plus {"$ne": v}."""
 
     def __init__(self):
         self.docs: list[dict] = []
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _cond(value, cond):
+        if isinstance(cond, dict) and set(cond) == {"$ne"}:
+            return value != cond["$ne"]
+        return value == cond
 
     def _match(self, doc, flt):
-        return all(doc.get(k) == v for k, v in (flt or {}).items())
+        return all(self._cond(doc.get(k), v) for k, v in (flt or {}).items())
+
+    def find_one_and_update(self, flt, update, **_kw):
+        """Atomic; supports {"$set": {...}} only; returns the doc as it was BEFORE the update
+        (pymongo's default ReturnDocument.BEFORE), or None."""
+        with self._lock:
+            for d in self.docs:
+                if self._match(d, flt):
+                    before = dict(d)
+                    d.update(update.get("$set", {}))
+                    return before
+            return None
 
     def find(self, flt=None, projection=None):
         return FakeCursor(dict(d) for d in self.docs if self._match(d, flt))

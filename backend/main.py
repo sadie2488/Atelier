@@ -17,6 +17,10 @@ from backend.routes import avatar, insights, items, outfits
 
 config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
+import backend.avatar as _avatar  # noqa: E402
+
+_avatar.warmup()  # loads the pose, segmenter and face models in a daemon thread; never raises
+
 app = FastAPI(title="Atelier")
 
 if config.CORS_ORIGINS:
