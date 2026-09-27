@@ -602,3 +602,6 @@ select.attr-input { cursor: pointer; }
 .palette-dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); box-shadow: 0 2px 6px color-mix(in oklab, var(--foreground) 18%, transparent); }
 .palette-line { width: 28px; height: 1px; margin: 11px -18px 0; background: var(--border); }
 .palette-stop figcaption { font: 600 12px/1.2 var(--font-sans); font-variant: small-caps; text-transform: lowercase; letter-spacing: .06em; color: var(--muted-foreground); text-align: center; }
+
+/* shape-following shadow on garments in saved-outfit cards */
+.saved-thumb img { filter: drop-shadow(0 6px 8px color-mix(in oklab, var(--foreground) 18%, transparent)); }
