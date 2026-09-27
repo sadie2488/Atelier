@@ -73,6 +73,8 @@ export const saveItem = (temp_handle: string, candidate_index: number) => http<I
 export const updateItem = (id: string, patch: { name?: string; attributes?: Record<string, string> }) =>
   http<Item>(`/items/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch satisfies RenameRequest) });
 export const renameItem = (id: string, name: string) => updateItem(id, { name });
+/** 2.6.0: remove an item from the closet (moved to an archive; reversible on the backend). */
+export const archiveItem = (id: string) => http<{ ok: true }>(`/items/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const rejectItem = (temp_handle: string) => http<{ ok: true }>("/items/reject", json({ temp_handle }));
 export async function generateOutfits(limit = 5, style?: OutfitStyle | null): Promise<Outfit[]> {
   return (await http<OutfitsGenerateResponse>("/outfits/generate", json(style ? { limit, style } : { limit }))).outfits;

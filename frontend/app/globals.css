@@ -613,3 +613,10 @@ select.attr-input { cursor: pointer; }
 .jacket-caption { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .jacket-caption .jacket-toggle { height: 22px; min-height: 22px; line-height: 20px; padding: 0 8px; font-size: 10px; }
 .jacket-row-off { display: flex; justify-content: center; padding: 6px 0; }
+
+/* ---- closet: remove (archive) button, top-right of the image, with an inline confirm ---- */
+.media-btn--tr { top: 8px; left: auto; right: 8px; }
+.remove-confirm { position: absolute; z-index: 3; left: 8px; right: 8px; bottom: 8px; padding: 12px 14px; background: color-mix(in oklab, var(--background) 94%, transparent); border: 1px solid var(--border); backdrop-filter: blur(8px); box-shadow: 0 10px 24px -14px color-mix(in oklab, var(--foreground) 40%, transparent); }
+.remove-confirm p { margin: 0 0 10px; font: 500 14px/1.4 var(--font-sans); color: var(--foreground); }
+.remove-confirm .remove-error { font-size: 12px; color: var(--destructive, #a33); }
+.remove-actions { display: flex; gap: 8px; }

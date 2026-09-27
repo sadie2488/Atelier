@@ -6,7 +6,7 @@ import { Button } from "@/components/Button";
 import { Plus, X } from "@/components/icons";
 import { Carousel, type Study } from "@/components/closet/Carousel";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { ApiError, CATEGORIES, updateItem, type Category, type ExtractedColor, type Item } from "@/lib/api";
+import { ApiError, CATEGORIES, archiveItem, updateItem, type Category, type ExtractedColor, type Item } from "@/lib/api";
 import { useIsMobile, useItems, useStoredAvatar } from "@/lib/hooks";
 import { clearStylistDefault, getStylistDefaults, setStylistDefault } from "@/lib/stylistDefaults";
 
@@ -138,7 +138,39 @@ function DefaultToggle({ item }: { item: Item }) {
 
 // Detail popup body. The pencil (image top-left) opens one edit mode for the name and every detail;
 // save sends the name (if changed) and the changed details in one PATCH. The item id never changes.
-function ItemDetail({ item, onSaved }: { item: Item; onSaved: (updated: Item) => void }) {
+function RemoveItem({ item, onRemoved }: { item: Item; onRemoved: () => void }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = item.retailer_item_name ?? item.garment_type;
+  const remove = async () => {
+    setBusy(true); setError(null);
+    try {
+      await archiveItem(item.id);
+      if (getStylistDefaults()[item.category] === item.id) clearStylistDefault(item.category);
+      onRemoved();
+    } catch { setError("Couldn’t remove it just now. Nothing was changed."); setBusy(false); }
+  };
+  return (
+    <>
+      <button type="button" className="rename-btn media-btn media-btn--tr" aria-label="Remove from closet" title="Remove from closet" onClick={() => setAsking(true)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>
+      </button>
+      {asking && (
+        <div className="remove-confirm" role="alertdialog" aria-label="Confirm removal">
+          <p>Remove {name} from your closet?</p>
+          {error && <p className="remove-error">{error}</p>}
+          <div className="remove-actions">
+            <button type="button" className="solid-btn" onClick={remove} disabled={busy}>{busy ? "removing…" : "Remove"}</button>
+            <button type="button" className="ghost-btn" onClick={() => { setAsking(false); setError(null); }} disabled={busy}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ItemDetail({ item, onSaved, onRemoved }: { item: Item; onSaved: (updated: Item) => void; onRemoved: () => void }) {
   const currentName = item.retailer_item_name ?? "";
   const keys = editKeys(item);
   const [editing, setEditing] = useState(false);
@@ -180,6 +212,7 @@ function ItemDetail({ item, onSaved }: { item: Item; onSaved: (updated: Item) =>
         <img src={item.cutout_url} alt={item.retailer_item_name ?? item.garment_type} />
         <button type="button" className="rename-btn media-btn media-btn--tl" aria-label={editing ? "Cancel editing" : "Edit garment"} aria-pressed={editing} title="Edit name and details" onClick={editing ? cancel : start}><Pencil /></button>
         <DefaultToggle key={item.id} item={item} />
+        <RemoveItem item={item} onRemoved={onRemoved} />
       </div>
       <div className="detail-info">
         <p className="detail-kicker">{item.category} · {item.garment_type}</p>
@@ -312,7 +345,7 @@ export default function ClosetPage() {
         <div className="preview-backdrop" role="presentation" onClick={() => setDetail(null)}>
           <div className="detail-panel" role="dialog" aria-modal="true" aria-label="Item detail" onClick={(event) => event.stopPropagation()}>
             <Button variant="close" aria-label="Close" className="detail-close" onClick={() => setDetail(null)}><X size={20} strokeWidth={1.5} /></Button>
-            <ItemDetail key={detail.id} item={detail} onSaved={(updated) => { setDetail(updated); itemsQ.refetch(); }} />
+            <ItemDetail key={detail.id} item={detail} onSaved={(updated) => { setDetail(updated); itemsQ.refetch(); }} onRemoved={() => { setDetail(null); itemsQ.refetch(); }} />
           </div>
         </div>
       )}
