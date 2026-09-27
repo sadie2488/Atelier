@@ -18,7 +18,7 @@ import pytest
 from PIL import Image
 
 from backend import config
-from backend.avatar import background, compositing, face, gen_client, ids, service, skin, verify
+from backend.avatar import background, compositing, face, gen_client, ids, person, service, skin, verify
 from backend.avatar.gen_client import generate_tryon as _real_generate_tryon  # bound before the
 # autouse fixture below monkeypatches gen_client.generate_tryon, so this name still reaches the
 # real function -- needed to test the real function's own behavior (the timeout it sends).
@@ -174,6 +174,109 @@ def test_missing_landmarks_are_not_a_valid_rig_input():
     del lm["left_hip"]
     with pytest.raises(KeyError):
         compute_rig(lm)
+
+
+# ---------------------------------------------------------------- A3 change: real-body avatar
+
+def _fake_segmenter_with_mask(category_mask):
+    """A test double for mp_models.image_segmenter -- same shape as skin.py's, but returning a
+    caller-supplied category mask instead of running the real model."""
+    class _FakeMask:
+        def numpy_view(self):
+            return category_mask
+
+    class _FakeResult:
+        category_mask = _FakeMask()
+
+    class _FakeSegmenter:
+        def segment(self, mp_image):
+            return _FakeResult()
+
+    return _FakeSegmenter()
+
+
+def _big_person_mask(size=PERSON_PHOTO_SIZE):
+    """A tall vertical blob comfortably over person.MIN_PERSON_FRACTION of the frame -- a
+    plausible "person" mask for these tests, not a realistic silhouette."""
+    w, h = size
+    mask = np.zeros((h, w), dtype=np.uint8)
+    mask[round(h * 0.07):round(h * 0.9), round(w * 0.24):round(w * 0.83)] = 4  # "clothes" category
+    return mask
+
+
+def test_person_cutout_used_when_mask_plausible(monkeypatch):
+    rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask()))
+
+    visuals = service.build_avatar_visuals(rgb, _good_landmarks())
+
+    assert visuals["avatar_kind"] == "real_body"
+    aw, ah = visuals["avatar_img"].size
+    assert (aw, ah) == (visuals["canvas_w"], visuals["canvas_h"])
+    # 1:2 width:height canvas (rounding-tolerant).
+    assert abs(aw * 2 - ah) <= 1
+    # The avatar image is the real-body cutout, not the drawn mannequin: it carries fully-opaque
+    # pixels wherever the (fake) person mask was set.
+    alpha = np.array(visuals["avatar_img"])[:, :, 3]
+    assert alpha.max() == 255
+
+
+def test_person_cutout_falls_back_to_drawn_avatar_when_mask_empty(monkeypatch):
+    rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
+    empty_mask = np.zeros((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0]), dtype=np.uint8)
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(empty_mask))
+    monkeypatch.setattr(skin, "image_segmenter", lambda: _fake_segmenter_with_mask(empty_mask))
+    monkeypatch.setattr(face, "detect_face_box_near", lambda rgb, head_center, head_radius: None)
+
+    visuals = service.build_avatar_visuals(rgb, _good_landmarks())
+
+    assert visuals["avatar_kind"] == "drawn"
+    assert visuals["avatar_img"].size == visuals["wireframe_img"].size
+
+
+def test_local_composite_places_garments_on_real_body_canvas(tmp_path, monkeypatch):
+    """A5, on the NEW canvas geometry: garments still land where the (translated) rig says."""
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    rgb = np.full((PERSON_PHOTO_SIZE[1], PERSON_PHOTO_SIZE[0], 3), (40, 40, 40), dtype=np.uint8)
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask()))
+
+    visuals = service.build_avatar_visuals(rgb, _good_landmarks())
+    assert visuals["avatar_kind"] == "real_body"
+    rig, canvas_size = visuals["rig_local"], (visuals["canvas_w"], visuals["canvas_h"])
+
+    shoulder_hip_anchors = {
+        "left_shoulder": [0.9, 0.0], "right_shoulder": [0.1, 0.0],
+        "left_hip": [0.9, 1.0], "right_hip": [0.1, 1.0],
+    }
+    top_item = _write_item(tmp_path, "top_realbody", GarmentType.shirt, (0, 255, 0), shoulder_hip_anchors)
+    from backend.avatar.service import _load_item_layer
+    composed = compositing.composite_outfit(
+        visuals["avatar_img"], canvas_size, rig, top=_load_item_layer(top_item),
+    )
+    sample_x = round(rig.shoulder_mid[0])
+    sample_y = round((rig.shoulder_mid[1] + rig.hip_mid[1]) / 2)
+    assert composed.getpixel((sample_x, sample_y))[:3] == (0, 255, 0)
+
+
+def test_scan_endpoint_produces_real_body_avatar_on_1to2_canvas(client, memory_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr("backend.avatar.service.detect_landmarks", lambda rgb: _good_landmarks())
+    monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(_big_person_mask()))
+
+    photo = Image.new("RGB", PERSON_PHOTO_SIZE, (40, 40, 40))
+    buf = io.BytesIO()
+    photo.save(buf, format="PNG")
+    resp = client.post("/api/avatar/scan", files={"image": ("photo.png", buf.getvalue(), "image/png")})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    avatar_doc = memory_db["avatars"].find_one({"avatar_id": body["avatar_id"]})
+    assert avatar_doc["avatar_kind"] == "real_body"  # DB-only; not in the response contract
+
+    avatar_img = Image.open(tmp_path / body["avatar_url"][len("/media/"):])
+    wireframe_img = Image.open(tmp_path / body["wireframe_url"][len("/media/"):])
+    assert abs(avatar_img.width * 2 - avatar_img.height) <= 1
+    assert avatar_img.size == wireframe_img.size  # same canvas geometry, so the two align
 
 
 # ---------------------------------------------------------------- helpers shared by A4/A5/A6

@@ -17,7 +17,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from backend import config
 from contract.enums import ErrorCode, GarmentType, MAX_UPLOAD_BYTES, RenderStatus
 
-from . import background, compositing, face, ids, media, skin
+from . import background, compositing, face, ids, media, person, skin
 from .draw import draw_avatar, draw_wireframe
 from .errors import AvatarError
 from .landmarks import LM_INDEX, detect_landmarks
@@ -55,23 +55,36 @@ def _decode_image(data: bytes) -> np.ndarray:
     return np.asarray(img)
 
 
-def scan(image_bytes: bytes, avatars_collection) -> dict:
-    """-> an avatar doc (contract fields + DB-only rig/canvas) ready to insert. Raises AvatarError."""
-    rgb = _decode_image(image_bytes)
+def build_avatar_visuals(rgb: np.ndarray, landmarks: dict) -> dict:
+    """rig -> the avatar image, wireframe image, local rig, and canvas size, on ONE shared
+    canvas geometry. Shared by scan() and backend/avatar/scripts/reprocess_avatar.py, so a
+    reprocessed avatar is built by exactly the same code as a fresh scan.
 
-    landmarks = detect_landmarks(rgb)
-    if landmarks is None:
-        raise AvatarError(
-            ErrorCode.no_person_detected,
-            "No person found in the photo. Step back so your whole body is in the outline.",
-        )
-
-    rejection = validate_pose(landmarks)
-    if rejection is not None:
-        code, message = rejection
-        raise AvatarError(code, message)
-
+    A3 change (human decision 2026-09-26; A-B3 superseded in contract/DECISIONS.md): the avatar
+    is a real-body cutout (person.build_person_cutout) on a transparent 1:2 canvas when the
+    person mask is plausible; otherwise it falls back to today's drawn mannequin (A-B8 spirit --
+    a scan never fails over this). The wireframe is always drawn on the SAME canvas geometry as
+    the avatar image, so the two align pixel-for-pixel and the local composite (which places
+    garments via this rig) is correct either way.
+    """
     rig = compute_rig(landmarks)
+
+    person_cutout = person.build_person_cutout(rgb)
+    if person_cutout is not None:
+        crop_img, (cx0, cy0, cx1, cy1) = person_cutout
+        canvas_img, (ox, oy) = person.pad_to_ratio(crop_img)
+        canvas_w, canvas_h = canvas_img.size
+        rig_local = translate(rig, -cx0 + ox, -cy0 + oy)
+        wireframe_img = draw_wireframe(rig_local, (canvas_w, canvas_h))
+        return {
+            "avatar_img": canvas_img,
+            "wireframe_img": wireframe_img,
+            "rig_local": rig_local,
+            "canvas_w": canvas_w,
+            "canvas_h": canvas_h,
+            "avatar_kind": "real_body",
+        }
+
     x0, y0, x1, y1 = canvas_bbox(rig)
     canvas_w, canvas_h = max(1, round(x1 - x0)), max(1, round(y1 - y0))
     rig_local = translate(rig, -x0, -y0)
@@ -88,10 +101,37 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
 
     wireframe_img = draw_wireframe(rig_local, (canvas_w, canvas_h))
     avatar_img = draw_avatar(rig_local, (canvas_w, canvas_h), skin_rgb, face_img)
+    return {
+        "avatar_img": avatar_img,
+        "wireframe_img": wireframe_img,
+        "rig_local": rig_local,
+        "canvas_w": canvas_w,
+        "canvas_h": canvas_h,
+        "avatar_kind": "drawn",
+    }
+
+
+def scan(image_bytes: bytes, avatars_collection) -> dict:
+    """-> an avatar doc (contract fields + DB-only rig/canvas) ready to insert. Raises AvatarError."""
+    rgb = _decode_image(image_bytes)
+
+    landmarks = detect_landmarks(rgb)
+    if landmarks is None:
+        raise AvatarError(
+            ErrorCode.no_person_detected,
+            "No person found in the photo. Step back so your whole body is in the outline.",
+        )
+
+    rejection = validate_pose(landmarks)
+    if rejection is not None:
+        code, message = rejection
+        raise AvatarError(code, message)
+
+    visuals = build_avatar_visuals(rgb, landmarks)
 
     avatar_id = ids.new_avatar_id(lambda aid: avatars_collection.find_one({"avatar_id": aid}) is not None)
-    wireframe_url = media.save_png(wireframe_img, "avatars", f"{avatar_id}_wireframe.png")
-    avatar_url = media.save_png(avatar_img, "avatars", f"{avatar_id}.png")
+    wireframe_url = media.save_png(visuals["wireframe_img"], "avatars", f"{avatar_id}_wireframe.png")
+    avatar_url = media.save_png(visuals["avatar_img"], "avatars", f"{avatar_id}.png")
     # A7: kept for the generation call, which needs a real photo, not the line-art avatar.
     source_photo_url = media.save_png(Image.fromarray(rgb), "avatars", f"{avatar_id}_photo.png")
 
@@ -100,9 +140,10 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
         "wireframe_url": wireframe_url,
         "avatar_url": avatar_url,
         "created_at": datetime.now(timezone.utc),
-        "rig": rig_to_dict(rig_local),
-        "canvas_w": canvas_w,
-        "canvas_h": canvas_h,
+        "rig": rig_to_dict(visuals["rig_local"]),
+        "canvas_w": visuals["canvas_w"],
+        "canvas_h": visuals["canvas_h"],
+        "avatar_kind": visuals["avatar_kind"],  # DB-only; not part of the contract (see routes_avatar._clean)
         "source_photo_url": source_photo_url,
         "source_landmarks": {name: [landmarks[name][0], landmarks[name][1]] for name in LM_INDEX},
         "source_w": rgb.shape[1],
