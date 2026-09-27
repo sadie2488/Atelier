@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { resetDemo, type ResetResult } from "@/lib/demoReset";
 
@@ -20,7 +21,7 @@ export default function ResetPage() {
         {typeof state === "object" && (
           <>
             <p>Done: {state.items} items. Archived {state.archived.length}, restored {state.restored.length}.</p>
-            <a className="ghost-btn" href="/">back to home</a>
+            <Link className="ghost-btn" href="/">back to home</Link>
           </>
         )}
         {typeof state === "string" && state !== "idle" && state !== "busy" && <p role="alert">{state}</p>}
