@@ -33,6 +33,12 @@ Create App → GitHub → this repo, branch `main`, then edit the component:
 | Instance count | **1** (render jobs and caches live in memory; more instances lose track of renders) |
 | Autodeploy | on push to `main` |
 
+> **App created earlier with the Python buildpack?** (Its logs show `.heroku/python` and
+> `No module named 'app'`.) That setup builds only `backend/`, so it can't see `contract/` and
+> lacks MediaPipe's system libraries. In the component's settings switch **Source directory**
+> to `/`, **Build strategy** to Dockerfile (`backend/Dockerfile`), **clear the Run command**,
+> and set the HTTP port to `8000`.
+
 Environment variables (mark both as **Encrypted**):
 
 | Key | Value |
