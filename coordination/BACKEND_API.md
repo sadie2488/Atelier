@@ -13,6 +13,33 @@ both sides.
 
 ---
 
+## Connecting the frontend
+
+**Status (2026-09-26):** every endpoint below is live on the backend (branch `pm/phase0-plan2`).
+
+1. **Run the backend** (repo root, Python 3.12 venv, `backend/.env` with `MONGODB_URI` and
+   `GEMINI_API_KEY`):
+   ```
+   .venv/Scripts/python.exe -m uvicorn backend.main:app --port 8000
+   ```
+   Check `http://localhost:8000/api/health` → `{"status":"ok","db":"ok"}`.
+2. **Run the frontend** (`frontend/`): `npm run dev`. `next.config.ts` already rewrites `/api/*`
+   and `/media/*` to `BACKEND_URL` (default `http://localhost:8000`). **Always call relative
+   paths** (`fetch("/api/items")`, `<img src={item.cutout_url}>`) — never the backend host — so
+   the same code works locally and deployed.
+3. **Types:** generate TypeScript from `contract/schema.json`, e.g.
+   `npx json-schema-to-typescript ../contract/schema.json -o lib/api-types.ts`. Regenerate when
+   this changelog says the contract changed.
+4. **Before the backend is reachable** (or for UI work without a backend), use the examples in
+   `contract/fixtures/api/<name>.response.json` — one per endpoint.
+5. **Deployed:** set `BACKEND_URL` in Vercel to the deployed backend's base URL.
+
+**Behaviors to wire first** (details in the sections below): analyze → pick one of 3 → save;
+the closet lists (stable order); "generate outfit" moves the top outfit's garments to index 0;
+scan with the pose outline and show the rejection message; render → show `local_url` at once →
+poll `GET /api/render/{id}` (1s for 15s, then 3s, give up at 45s) → swap in `generated_url`
+silently. Tell the user before capture that the photo is sent to Google's Gemini API (A-R18).
+
 ## Conventions
 
 - All API routes are under `/api`. Media is served from `/media` at the top level.
