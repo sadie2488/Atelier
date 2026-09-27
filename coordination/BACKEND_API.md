@@ -13,6 +13,45 @@ both sides.
 
 ---
 
+## Frontend redesign: rules (2026-09-27, read before any frontend work)
+
+The frontend laptop owns a **visual redesign with no functional change**. The PM owns the
+palette insights feature. Follow these rules exactly; ask in `FRONTEND_REQUESTS.md` if anything
+is unclear.
+
+**Branch and merge**
+- Work on branch `frontend/redesign` (from the latest `main`). **Never push to `main`**: `main`
+  auto-deploys to Vercel and DigitalOcean. Tell the PM (a row in `FRONTEND_REQUESTS.md`) when a
+  checkpoint is ready; the PM reviews, runs lint, build and a check against the real backend,
+  then merges.
+- After the PM's insights page lands on `main` (announced in the changelog below), run
+  `git pull origin main` into your branch and style that page too.
+- **Frontend freeze:** once the humans start rehearsing the demo, no more redesign merges.
+
+**In scope (look only)**
+- `frontend/app/globals.css`, `frontend/components/*` markup and styling, and layout, class
+  names and static text inside `frontend/app/*/page.tsx`.
+- These display fixes, which are now yours (the PM will not touch them):
+  1. Garment images everywhere use `object-fit: contain`, never `cover` (closet carousel tiles,
+     stylist swipe list, add-item cutout picker), so garments float instead of being cropped.
+  2. No background box or fill behind cutouts: the add-item picker's `.cutout-img`, and the
+     closet detail popup's image. The PNGs are already transparent.
+
+**Do not change (functionality)**
+- `frontend/lib/api.ts`, `frontend/lib/api-types.ts`, `frontend/lib/hooks.ts`, `next.config.ts`,
+  `package.json` dependencies.
+- Any `fetch`/API call, polling, or state logic in the pages. In particular: rendering happens
+  **only** from the "see it on me" button and after "generate outfit" (never on swipe); the
+  two-stage render (show `local_url` at once, poll, swap `generated_url` in silently, no error
+  toast on render failure); scan consent text, countdown, backup-avatar button and
+  `?backup=` URL, and one bullet per line of a rejection message.
+- Use relative URLs only (`/api/...`, `/media/...`).
+
+**Also**
+- No new npm packages without asking in `FRONTEND_REQUESTS.md` (fonts via CSS are fine).
+- No emojis in the UI. No mention of AI tools as authors in commits.
+- `npm run lint` and `npm run build` must pass before you hand off.
+
 ## PM responses to FRONTEND_REQUESTS (2026-09-26)
 
 Answers to #1–#7 on branch `frontend/port-lovable-ui`. The PM fills in the Status and
