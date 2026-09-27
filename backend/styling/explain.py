@@ -72,6 +72,23 @@ def fallback_explanation(
     return _FALLBACK[strategy]
 
 
+def guided_fallback(
+    strategy: Strategy, top: dict | None = None, bottom: dict | None = None, jacket: dict | None = None
+) -> str:
+    """Deterministic explanation (no Gemini configured): the strategy fallback plus, only when
+    the colour-dressing guide lists the top+bottom pair, one plain sentence saying so."""
+    base = fallback_explanation(strategy, top, bottom, jacket)
+    if top is None or bottom is None:
+        return base
+    from backend.styling.pairing_guide import guide_sentence
+
+    try:
+        extra = guide_sentence(top, bottom)
+    except Exception:
+        extra = None
+    return f"{base} {extra}" if extra else base
+
+
 def _cache_key(strategy: Strategy, top: dict, bottom: dict, jacket: dict | None) -> tuple:
     pieces = [top, bottom, *([jacket] if jacket else [])]
     names = tuple(p["primary_color"]["name"] for p in pieces)
@@ -137,7 +154,7 @@ def explain_many(requests: list[tuple[Strategy, dict, dict, dict | None]]) -> li
         # A family-only sandwich stays deterministic: Gemini told "sandwich" tends to claim a
         # shared color that isn't there.
         if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket):
-            results[i] = _fb(i)
+            results[i] = guided_fallback(*requests[i])
             continue
 
         key = _cache_key(strategy, top, bottom, jacket)
@@ -178,10 +195,18 @@ def _gemini_explain(strategy: Strategy, top: dict, bottom: dict, jacket: dict | 
     pieces = [top, bottom, *([jacket] if jacket else [])]
     colors = ", ".join(p["primary_color"]["name"] for p in pieces)
 
+    from backend.styling.pairing_guide import guide_sentence
+
+    try:
+        hint = guide_sentence(top, bottom)
+    except Exception:
+        hint = None
     client = genai.Client(api_key=config.GEMINI_API_KEY)
     prompt = (
         f"In one short sentence, explain why a '{strategy.value}' outfit combining these "
         f"colors works, using color theory: {colors}. No preamble, no chat, exactly one sentence."
     )
+    if hint:
+        prompt += f" A colour-dressing guide lists this pairing: {hint}"
     resp = client.models.generate_content(model=config.GEMINI_TEXT_MODEL, contents=prompt)
     return (getattr(resp, "text", None) or "").strip()

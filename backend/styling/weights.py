@@ -132,3 +132,37 @@ EXPLAIN_SHARED_COLOR_MAX_DELTA_E = 10.0
 # Threshold above which a synthetic top-family/bottom pairing counts as "pairs well" for the
 # "Adding a <family> top would pair with N of your bottoms" observation.
 INSIGHTS_PAIR_GOOD_THRESHOLD = 0.6
+
+# ---- colour-dressing guide (backend/styling/pairing_guide.py; "A Pair & A Spare" chart).
+# Additive adjustment to a pair's score (top-bottom at full weight, jacket pairs averaged into
+# the jacket term) by what the guide says about the pair. Never touches score_color_pair, so
+# the 12 expectations are unaffected; it only nudges outfit scores / ranking.
+GUIDE_COMPLEMENTARY_BONUS = 0.04
+GUIDE_TONAL_BONUS = 0.03
+GUIDE_NEUTRAL_BONUS = 0.0
+GUIDE_UNLISTED_PENALTY = -0.04
+
+# Denim special case: a blue bottom (pants/shorts/skirt) reads as light-wash denim (guide "light
+# blue") above this L*, dark/indigo denim (guide "navy") at or below it. "Blue" = hue in the
+# band below with at least this chroma (below it the bottom is grey/black by nearest swatch).
+DENIM_LIGHT_L_MIN = 55.0
+DENIM_HUE_MIN_DEG = 200.0
+DENIM_HUE_MAX_DEG = 300.0
+DENIM_MIN_CHROMA = 4.0
+
+# Seasonal palette read (insights): mean L*, mean chroma and warm share of the closet's
+# non-neutral items. A hue counts as warm when it lies outside [SEASON_COOL_HUE_MIN,
+# SEASON_COOL_HUE_MAX) (reds/oranges/yellows/browns); inside is cool (greens to purples).
+SEASON_MIN_ITEMS = 2
+SEASON_COOL_HUE_MIN = 105.0
+SEASON_COOL_HUE_MAX = 330.0
+SEASON_LIGHT_L_MIN = 62.0       # mean L* above -> light
+SEASON_DEEP_L_MAX = 42.0        # mean L* below -> deep
+SEASON_BRIGHT_C_MIN = 45.0      # mean chroma above -> bright
+SEASON_SOFT_C_MAX = 28.0        # mean chroma below -> soft/muted
+SEASON_WARM_SHARE_MIN = 0.6     # warm share at/above -> warm
+SEASON_COOL_SHARE_MAX = 0.4     # warm share at/below -> cool
+# Normalisers used to decide which axis dominates (distance past the mid thresholds).
+SEASON_L_SCALE = 20.0
+SEASON_C_SCALE = 20.0
+SEASON_TEMP_SCALE = 1.0

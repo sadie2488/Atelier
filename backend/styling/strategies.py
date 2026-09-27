@@ -17,6 +17,7 @@ from __future__ import annotations
 from contract.enums import Strategy
 
 from backend.styling import weights as W
+from backend.styling.pairing_guide import pair_adjustment
 from backend.styling.scorer import hue_diff, score_items
 
 
@@ -97,7 +98,10 @@ def _jacket_variants(top: dict, bottom: dict, jackets: list[dict]):
 
 
 def _combine_with_jacket(base_score: float, jacket: dict, top: dict, bottom: dict) -> float:
-    jacket_score = (score_items(jacket, top) + score_items(jacket, bottom)) / 2
+    jacket_score = (
+        score_items(jacket, top) + pair_adjustment(jacket, top)
+        + score_items(jacket, bottom) + pair_adjustment(jacket, bottom)
+    ) / 2
     return (
         (W.PRIMARY_PAIR_WEIGHT * base_score + W.JACKET_PAIR_WEIGHT * jacket_score)
         / (W.PRIMARY_PAIR_WEIGHT + W.JACKET_PAIR_WEIGHT)
@@ -115,6 +119,8 @@ def generate_candidates(tops: list[dict], bottoms: list[dict], jackets: list[dic
             classified = _classify_pair(top, bottom)
             if classified is not None:
                 strategy, base_score = classified
+                # Colour-dressing guide term on the core top-bottom pair (weights.GUIDE_*).
+                base_score += pair_adjustment(top, bottom)
                 for jacket in _jacket_variants(top, bottom, jackets):
                     if jacket is None:
                         yield strategy, top, bottom, None, base_score
@@ -127,7 +133,7 @@ def generate_candidates(tops: list[dict], bottoms: list[dict], jackets: list[dic
             # top+bottom pair on its own (S-S2 ladder priority keeps a pair labeled once).
             # There is no jacket-less variant: the strategy needs the jacket for its third
             # color slot, so a closet with no suitable jacket leaves it silently dormant (S-S3).
-            base_score = score_items(top, bottom)
+            base_score = score_items(top, bottom) + pair_adjustment(top, bottom)
             for jacket in jackets:
                 if _classify_sandwich(top, bottom, jacket) is None:
                     continue

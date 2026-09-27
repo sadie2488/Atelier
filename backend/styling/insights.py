@@ -17,6 +17,9 @@ from functools import lru_cache
 from contract.tools.color import color_table, lab_to_lch
 
 from backend.styling import weights as W
+from backend.styling.pairing_guide import (
+    GUIDE_NEUTRALS, GUIDE_SWATCHES, GUIDE_TABLE, classify_season, item_guide_color, pair_quality,
+)
 from backend.styling.scorer import hue_diff, score_items
 from backend.styling.strategies import generate_candidates
 
@@ -148,6 +151,25 @@ def _missing_family_pair_counts(missing_families: list[str], bottoms: list[dict]
     return results
 
 
+def _guide_top_pair_counts(tops: list[dict], bottoms: list[dict]) -> list[tuple[str, int]]:
+    """For each non-neutral guide color the closet has no top in, how many of the user's
+    bottoms the colour-dressing guide pairs it with (complementary or tonal). Best first,
+    guide order on ties (e.g. light jeans -> pink/red/orange; dark jeans -> pink/red/yellow)."""
+    if not bottoms:
+        return []
+    have = {item_guide_color(t) for t in tops}
+    bottom_colors = [item_guide_color(b) for b in bottoms]
+    order = list(GUIDE_TABLE) + [c for c in GUIDE_SWATCHES if c not in GUIDE_TABLE]
+    results = []
+    for color in order:
+        if color in GUIDE_NEUTRALS or color in have:
+            continue
+        n = sum(1 for bc in bottom_colors if pair_quality(color, bc) in ("complementary", "tonal"))
+        results.append((color, n))
+    results.sort(key=lambda kv: (-kv[1], order.index(kv[0])))
+    return results
+
+
 def _round_pct(share: float) -> int:
     return round(share * 100)
 
@@ -160,6 +182,8 @@ def _observations(
     bottoms: list[dict],
     jackets: list[dict],
     pair_counts: list[tuple[str, int]],
+    season_sentence: str | None = None,
+    guide_pairs: bool = False,
 ) -> list[str]:
     """Up to 6 plain, specific, one-sentence observations (contract PaletteInsights.insights).
     No LLM: every sentence is computed directly from the data above.
@@ -169,8 +193,17 @@ def _observations(
 
     obs: list[str] = [f"{_round_pct(neutral_share)}% of your closet is neutral."]
 
+    if season_sentence:
+        obs.append(season_sentence)
+
     if families:
         obs.append(f"Your most common colors are {_family_words(families[0]['family'])}.")
+
+    if pair_counts:
+        best_family, best_count = pair_counts[0]
+        if best_count > 0:
+            word = best_family if guide_pairs else _family_words(best_family)
+            obs.append(f"Adding {_a(word)} top would pair with {best_count} of your bottoms.")
 
     present = {f["family"] for f in families}
     if present and not (present & WARM_FAMILIES):
@@ -188,10 +221,6 @@ def _observations(
     if n_jackets == 0 and n_tops and n_bottoms:
         obs.append("You have no jackets, so sandwich outfits aren't available yet.")
 
-    if pair_counts:
-        best_family, best_count = pair_counts[0]
-        if best_count > 0:
-            obs.append(f"Adding {_a(_family_words(best_family))} top would pair with {best_count} of your bottoms.")
 
     return obs[:6]
 
@@ -275,8 +304,12 @@ def compute_insights(items: list[dict], family_counts: dict[str, int] | None = N
 
     neutral_share = neutral_count / item_count if item_count else 0.0
 
-    pair_counts = _missing_family_pair_counts(missing_families, bottoms)
-    insights = _observations(item_count, neutral_share, families, tops, bottoms, jackets, pair_counts)
+    pair_counts = _guide_top_pair_counts(tops, bottoms)
+    season = classify_season([i["primary_color"]["lab"] for i in items if not i["primary_color"]["is_neutral"]])
+    insights = _observations(
+        item_count, neutral_share, families, tops, bottoms, jackets, pair_counts,
+        season_sentence=season["sentence"] if season else None, guide_pairs=True,
+    )
 
     most_versatile = _most_versatile(tops, bottoms, jackets)
 

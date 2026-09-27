@@ -661,3 +661,77 @@ def test_scorer_expectations(case):
     a, b = case["a"], case["b"]
     score = score_color_pair(a, b)
     assert score == pytest.approx(case["expected_score"], abs=case.get("tolerance", 0.05))
+
+
+# ------------------------------------------------------------- colour-dressing guide (S5)
+
+from contract.tools.color import hex_to_lab
+from backend.styling import pairing_guide as PG
+
+
+def test_guide_color_denim_special_case():
+    light_jeans = hex_to_lab("#9fb6d1")
+    indigo_jeans = hex_to_lab("#2c3a5c")
+    black_jeans = hex_to_lab("#1c1c1e")
+    assert PG.guide_color(light_jeans, "pants") == "light blue"
+    assert PG.guide_color(indigo_jeans, "pants") == "navy"
+    assert PG.guide_color(black_jeans, "pants") == "black"
+    assert PG.guide_color(light_jeans, "shorts") == "light blue"
+
+
+def test_guide_color_nearest_swatch():
+    assert PG.guide_color(hex_to_lab("#ffffff"), "shirt") == "white"
+    assert PG.guide_color(hex_to_lab("#d32027"), "shirt") == "red"
+    assert PG.guide_color(hex_to_lab("#f4c2c2"), "shirt") == "pink"
+    assert PG.guide_color(hex_to_lab("#1b2a5a"), "shirt") == "navy"
+    assert PG.guide_color(hex_to_lab("#5a3a2e"), "shirt") == "brown"
+
+
+def test_pair_quality_rows_and_symmetry():
+    assert PG.pair_quality("pink", "navy") == "complementary"
+    assert PG.pair_quality("light blue", "orange") == "complementary"
+    assert PG.pair_quality("navy", "yellow") == "complementary"
+    assert PG.pair_quality("red", "pink") == "tonal"
+    assert PG.pair_quality("light blue", "navy") == "tonal"
+    assert PG.pair_quality("orange", "grey") == "neutral"
+    assert PG.pair_quality("yellow", "purple") == "none"
+    names = list(PG.GUIDE_SWATCHES)
+    for a in names:
+        for b in names:
+            assert PG.pair_quality(a, b) == PG.pair_quality(b, a)
+
+
+def test_guide_bonus_ranks_listed_pair_above_unlisted():
+    from backend.styling import weights as W
+    assert W.GUIDE_COMPLEMENTARY_BONUS > 0 > W.GUIDE_UNLISTED_PENALTY
+    jeans = {"id": "bottom_1", "garment_type": "pants", "primary_color": {"lab": hex_to_lab("#9fb6d1")}}
+    red = {"id": "top_1", "garment_type": "shirt", "primary_color": {"lab": hex_to_lab("#d32027")}}
+    assert PG.pair_adjustment(red, jeans) == W.GUIDE_COMPLEMENTARY_BONUS
+    assert PG.guide_sentence(red, jeans) == "Light-wash denim pairs well with red."
+
+
+def test_guide_sentence_only_for_listed_pairs():
+    pink = {"garment_type": "shirt", "primary_color": {"lab": hex_to_lab("#f4c2c2")}}
+    navy_skirt = {"garment_type": "skirt", "primary_color": {"lab": hex_to_lab("#1b2a5a")}}
+    yellow = {"garment_type": "shirt", "primary_color": {"lab": hex_to_lab("#fdd835")}}
+    purple = {"garment_type": "skirt", "primary_color": {"lab": hex_to_lab("#7a4a63")}}
+    assert PG.guide_sentence(pink, navy_skirt) == "Pink and navy are an easy classic pairing."
+    assert PG.guide_sentence(yellow, purple) is None
+
+
+def test_seasonal_classifier_synthetic_palettes():
+    soft_autumn = [hex_to_lab(h) for h in ("#8a7a5c", "#9c6b4e", "#7d7a52", "#a08466")]
+    deep_winter = [hex_to_lab(h) for h in ("#1b2a5a", "#3b1f4a", "#0f3b3a", "#5a1030")]
+    light_summer = [hex_to_lab(h) for h in ("#c9e0f2", "#d8c8e8", "#bfd8e0", "#c8d4ee")]
+    bright_spring = [hex_to_lab(h) for h in ("#f05a28", "#fdd835", "#ff7f50", "#e0a000")]
+    assert PG.classify_season(soft_autumn)["season"] == "soft autumn"
+    assert PG.classify_season(deep_winter)["season"] == "deep winter"
+    assert PG.classify_season(light_summer)["season"] == "light summer"
+    assert PG.classify_season(bright_spring)["season"] in ("bright spring", "true spring")
+    assert PG.classify_season([hex_to_lab("#f05a28")]) is None
+
+
+def test_insights_guide_suggestion_uses_bottoms(fixture_items):
+    result = compute_insights(fixture_items)
+    PaletteInsights.model_validate(result)
+    assert len(result["insights"]) <= 6
