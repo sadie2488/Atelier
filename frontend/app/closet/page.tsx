@@ -263,7 +263,7 @@ export default function ClosetPage() {
     <main className="archive-shell">
       <aside className="scan-panel" aria-hidden="true">
         <div className="avatar-boundary">
-          <span className="avatar-boundary-box">{avatar && <img src={avatar.avatar_url} alt="" />}</span>
+          <span className="avatar-boundary-box">{avatar && <span className="avatar-floor" aria-hidden="true" />}{avatar && <img src={avatar.avatar_url} alt="" />}</span>
         </div>
       </aside>
 

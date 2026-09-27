@@ -164,6 +164,7 @@ export default function ScanPage() {
         <div className="flow-center">
           <div className="avatar-reveal">
             <img src={step.avatar.wireframe_url} alt="" className={`scan-figure${step.reveal ? " is-gone" : ""}`} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+            <div className="avatar-floor" aria-hidden="true" />
             <img src={step.avatar.avatar_url} alt="Your avatar" className={step.reveal ? "is-shown" : ""} />
           </div>
           {step.reveal && <div className="state-actions"><Link href="/closet" className="solid-btn">go to closet</Link><Link href="/stylist" className="ghost-btn">stylist</Link></div>}

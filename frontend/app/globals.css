@@ -17,18 +17,22 @@
 :root {
   --background: oklch(0.94 0.02 75);
   --foreground: oklch(0.27 0.015 55);
-  --primary: oklch(0.46 0.1 38);
-  --primary-foreground: oklch(0.96 0.012 80);
+  --primary: oklch(0.52 0.045 245);
+  --primary-foreground: oklch(0.98 0.005 245);
   --muted: oklch(0.87 0.015 75);
   --muted-foreground: oklch(0.35 0.02 60);
   --border: oklch(0.35 0.02 60 / 30%);
-  --accent: oklch(0.46 0.1 38);
+  --accent: oklch(0.52 0.045 245);
   --destructive: oklch(0.55 0.18 27);
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
-body { margin: 0; background: var(--background) url("/cloud-gradient.jpg") center / cover no-repeat fixed; color: var(--foreground); font-family: var(--font-sans); }
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+/* Drifting sky: the pano is two mirrored copies side by side, so it tiles seamlessly; one tile = 1.3334 x viewport height. */
+body::before { content: ""; position: fixed; top: 0; left: 0; height: 100vh; width: calc(100vw + 133.3333vh); background: url("/cloud-sky-pano.jpg") 0 0 / auto 100% repeat-x; z-index: -1; animation: sky-drift 240s linear infinite; will-change: transform; pointer-events: none; }
+@keyframes sky-drift { from { transform: translateX(-133.3333vh); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { body::before { animation: none; transform: none; } }
 button { font: inherit; }
 button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 ::selection { background: var(--primary); color: var(--primary-foreground); }
@@ -550,7 +554,7 @@ select.attr-input { cursor: pointer; }
 .stylist-page .stylist-action { padding: 16px 26px; min-height: 50px; font-size: 15px; }
 .style-chip { padding: 10px 14px; min-height: 44px; font-size: 13px; }
 .style-modes { gap: 6px; max-width: 300px; }
-.jacket-toggle { padding: 12px 18px; min-height: 44px; font-size: 13px; }
+.jacket-toggle { padding: 0 10px; min-height: 26px; height: 26px; line-height: 24px; font-size: 11px; border-width: 1px; border-radius: 999px; letter-spacing: .05em; }
 .save-name { max-width: 300px; }
 .save-name input { font-size: 16px; padding: 10px 2px; }
 @media (min-width: 701px) {
@@ -585,3 +589,16 @@ select.attr-input { cursor: pointer; }
 .detail-color-text small { font: 600 11px var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
 .detail-color-text code { font: 500 12px var(--font-sans); color: var(--muted-foreground); }
 @media (min-width: 701px) { .stylist-lists .jacket-block .swipe-item img { object-position: center top; padding-top: 2px; } }
+
+/* Soft floor shadow at the avatar's feet (behind the image, under the curtain). */
+.avatar-floor { position: absolute; left: 50%; bottom: 1.5%; transform: translateX(-50%); width: 62%; height: 7%; border-radius: 50%; background: radial-gradient(ellipse at center, color-mix(in oklab, var(--foreground) 28%, transparent) 0%, color-mix(in oklab, var(--foreground) 10%, transparent) 45%, transparent 72%); filter: blur(4px); pointer-events: none; }
+.avatar-boundary-box { position: relative; }
+.avatar-boundary-box img, .avatar-reveal img { position: relative; }
+
+/* Outfit palette under the stylist avatar: top, bottom, jacket dots joined by thin lines. */
+.stylist-palette { display: flex; align-items: flex-start; justify-content: center; }
+.palette-stop { display: flex; align-items: flex-start; }
+.palette-stop figure { margin: 0; display: grid; justify-items: center; gap: 5px; width: 72px; }
+.palette-dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); box-shadow: 0 2px 6px color-mix(in oklab, var(--foreground) 18%, transparent); }
+.palette-line { width: 28px; height: 1px; margin: 11px -18px 0; background: var(--border); }
+.palette-stop figcaption { font: 600 12px/1.2 var(--font-sans); font-variant: small-caps; text-transform: lowercase; letter-spacing: .06em; color: var(--muted-foreground); text-align: center; }
