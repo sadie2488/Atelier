@@ -17,7 +17,7 @@ then see the look on an avatar built from a scan of you.
 ![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?style=for-the-badge&logo=google&logoColor=white)
 
-![Tests](https://img.shields.io/badge/tests-91_passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-122_passing-brightgreen?style=flat-square)
 ![Offline suite](https://img.shields.io/badge/test_suite-fully_offline-blue?style=flat-square)
 ![Status](https://img.shields.io/badge/status-hackathon_build-orange?style=flat-square)
 
@@ -27,7 +27,8 @@ then see the look on an avatar built from a scan of you.
 **[Features](#features)** ·
 **[Quick start](#quick-start)** ·
 **[API](#api-at-a-glance)** ·
-**[Architecture](#architecture)**
+**[Architecture](#architecture)** ·
+**[Demo](#demo)**
 
 </div>
 
@@ -69,8 +70,10 @@ feed a **pure, deterministic scorer**. Up to five ranked outfits, each with a on
 <td width="50%" valign="top">
 
 ### Try it on
-A scan becomes a **line-art avatar** drawn from your pose. Outfits appear instantly as a local
-composite, then a **Gemini-generated try-on** swaps in once it passes a color check.
+A scan becomes an avatar built from **your own body**, cut out of the photo head to feet (a
+line-art figure covers the loading state and any fallback). Tap **See it on me** and outfits
+appear instantly as a local composite, then a **Gemini-generated try-on** swaps in once it
+passes a color check.
 
 </td>
 </tr>
@@ -108,9 +111,9 @@ flowchart LR
    enough, a secondary color. Names and families come from a lookup table.
 3. **Recommend.** Each strategy proposes outfits (`bottom + top-or-dress + optional jacket`);
    the scorer ranks them and selection keeps variety (at most two per strategy).
-4. **Render.** The local composite returns in under 100 ms. Gemini generates the try-on in the
-   background (~10 s); the result is checked against each garment's measured color (ΔE2000)
-   before the frontend swaps it in.
+4. **Render.** Tapping **See it on me** returns the local composite in under 100 ms. Gemini
+   generates the try-on in the background (~10 s); the result is checked against each garment's
+   measured color (ΔE2000) before the frontend swaps it in.
 
 </details>
 
@@ -182,8 +185,15 @@ npm run dev        # http://localhost:3000
 `next.config.ts` proxies `/api/*` and `/media/*` to `BACKEND_URL` (default
 `http://localhost:8000`), so the frontend only ever uses relative URLs.
 
-> **TODO (frontend):** screens, environment variables, and type generation, once the frontend
-> commit lands.
+**Screens:**
+
+| Route | What it does |
+|:--|:--|
+| `/` | Landing |
+| `/closet` | Swipe tops and bottoms, generate outfits |
+| `/scan` | Camera capture with a consent notice and countdown; `?backup=<avatar_id>` skips straight to a pre-scanned avatar |
+| `/add-item` | Ingest a garment: analyze, pick a candidate, save |
+| `/stylist` | The two-stage render — local composite on tap, Gemini try-on swapped in silently once it's verified |
 
 </details>
 
@@ -214,6 +224,10 @@ Examples: [`contract/fixtures/api/`](contract/fixtures/api/)
 <details>
 <summary><b>The two-stage render, visualized</b></summary>
 <br>
+
+Rendering is triggered only by an explicit **See it on me** tap, never by swiping or selecting
+garments — every new combination starts a paid, ~10 s Gemini generation, so nothing runs
+speculatively.
 
 ```mermaid
 sequenceDiagram
@@ -281,6 +295,13 @@ tools/                 checks and maintenance scripts
 
 The database, media storage, and Gemini are replaced with in-memory stand-ins, so the suite never
 touches the network.
+
+---
+
+## Demo
+
+Live demo script, timestamps, and a fallback plan for the two presenters:
+[`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
 ---
 
