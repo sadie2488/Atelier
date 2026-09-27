@@ -37,6 +37,7 @@ LANE_SCOPE = {
     "styling": [
         "backend/styling/**",
         "backend/routes/outfits.py",
+        "backend/routes/insights.py",
         "backend/tests/test_styling.py",
     ],
     "avatar": [

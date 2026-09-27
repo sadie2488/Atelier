@@ -21,7 +21,7 @@ from .enums import (
 )
 from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "2.1.0"
+CONTRACT_VERSION = "2.2.0"
 
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
 SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
@@ -286,6 +286,40 @@ class RenderJob(Strict):
         return self
 
 
+# ---------------------------------------------------------------- insights (contract 2.2.0)
+
+class FamilyShare(Strict):
+    """One colors.json family's presence in the closet, by item primary color."""
+    family: str
+    count: int = Field(ge=0)
+    share: float = Field(ge=0, le=1)                  # count / item_count
+    hex: str = Field(pattern=r"^#[0-9a-f]{6}$")        # representative color (mean Lab of its items)
+
+
+class PaletteSwatch(Strict):
+    item_id: str = Field(pattern=SLUG_PATTERN)
+    category: Category
+    hex: str = Field(pattern=r"^#[0-9a-f]{6}$")
+    display_name: Optional[str] = Field(default=None, max_length=60)
+    family: str
+
+
+class VersatileItem(Strict):
+    item_id: str = Field(pattern=SLUG_PATTERN)
+    outfit_count: int = Field(ge=0)                    # outfits it appears in among generated candidates
+
+
+class PaletteInsights(Strict):
+    """GET /insights/palette: closet-wide color summary for the palette page (styling lane)."""
+    item_count: int = Field(ge=0)
+    neutral_share: float = Field(ge=0, le=1)           # share of items whose primary is_neutral
+    families: list[FamilyShare]                        # most common first
+    swatches: list[PaletteSwatch]                      # one per item, newest first
+    missing_families: list[str]                        # colors.json families with no item
+    insights: list[str] = Field(max_length=6)          # plain-language observations, each one sentence
+    most_versatile: list[VersatileItem] = Field(max_length=3)
+
+
 # ---------------------------------------------------------------- misc
 
 class HealthResponse(Strict):
@@ -319,6 +353,7 @@ ENDPOINTS = [
     ("GET",  "/avatar/{avatar_id}", None,                   Avatar),
     ("POST", "/render",             RenderRequest,          RenderJob),
     ("GET",  "/render/{render_id}", None,                   RenderJob),
+    ("GET",  "/insights/palette",   None,                   PaletteInsights),
 ]
 
 # Every model published in schema.json (the frontend generates TypeScript from it).
@@ -326,6 +361,7 @@ API_MODELS = [
     ExtractedColor, Item, AnalyzeForm, Candidate, AnalyzeResponse, SaveRequest, RejectRequest,
     RejectResponse, ItemListResponse, Outfit, OutfitsGenerateRequest, OutfitsGenerateResponse,
     AvatarScanResponse, Avatar, RenderRequest, RenderJob, HealthResponse, ErrorResponse,
+    FamilyShare, PaletteSwatch, VersatileItem, PaletteInsights,
 ]
 
 

@@ -20,6 +20,7 @@ the first thing cut. Build in ship order, not in interest order.
 ```
 backend/styling/**
 backend/routes/outfits.py
+backend/routes/insights.py
 backend/tests/test_styling.py
 ```
 

@@ -325,6 +325,40 @@
       "title": "ExtractedColor",
       "type": "object"
     },
+    "FamilyShare": {
+      "additionalProperties": false,
+      "description": "One colors.json family's presence in the closet, by item primary color.",
+      "properties": {
+        "family": {
+          "title": "Family",
+          "type": "string"
+        },
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "share": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Share",
+          "type": "number"
+        },
+        "hex": {
+          "pattern": "^#[0-9a-f]{6}$",
+          "title": "Hex",
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "count",
+        "share",
+        "hex"
+      ],
+      "title": "FamilyShare",
+      "type": "object"
+    },
     "GarmentType": {
       "description": "Which pose region vision segments. A dress is category tops, garment_type dress.",
       "enum": [
@@ -550,6 +584,114 @@
       "title": "OutfitsGenerateResponse",
       "type": "object"
     },
+    "PaletteInsights": {
+      "additionalProperties": false,
+      "description": "GET /insights/palette: closet-wide color summary for the palette page (styling lane).",
+      "properties": {
+        "item_count": {
+          "minimum": 0,
+          "title": "Item Count",
+          "type": "integer"
+        },
+        "neutral_share": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Neutral Share",
+          "type": "number"
+        },
+        "families": {
+          "items": {
+            "$ref": "#/$defs/FamilyShare"
+          },
+          "title": "Families",
+          "type": "array"
+        },
+        "swatches": {
+          "items": {
+            "$ref": "#/$defs/PaletteSwatch"
+          },
+          "title": "Swatches",
+          "type": "array"
+        },
+        "missing_families": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Families",
+          "type": "array"
+        },
+        "insights": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "title": "Insights",
+          "type": "array"
+        },
+        "most_versatile": {
+          "items": {
+            "$ref": "#/$defs/VersatileItem"
+          },
+          "maxItems": 3,
+          "title": "Most Versatile",
+          "type": "array"
+        }
+      },
+      "required": [
+        "item_count",
+        "neutral_share",
+        "families",
+        "swatches",
+        "missing_families",
+        "insights",
+        "most_versatile"
+      ],
+      "title": "PaletteInsights",
+      "type": "object"
+    },
+    "PaletteSwatch": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "pattern": "^[a-z]+_[0-9a-f]{6}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "hex": {
+          "pattern": "^#[0-9a-f]{6}$",
+          "title": "Hex",
+          "type": "string"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "maxLength": 60,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "family": {
+          "title": "Family",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "category",
+        "hex",
+        "family"
+      ],
+      "title": "PaletteSwatch",
+      "type": "object"
+    },
     "RejectRequest": {
       "additionalProperties": false,
       "description": "POST /items/reject. Nothing persists; the rejection is logged.",
@@ -705,7 +847,28 @@
       ],
       "title": "Strategy",
       "type": "string"
+    },
+    "VersatileItem": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "pattern": "^[a-z]+_[0-9a-f]{6}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "outfit_count": {
+          "minimum": 0,
+          "title": "Outfit Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "item_id",
+        "outfit_count"
+      ],
+      "title": "VersatileItem",
+      "type": "object"
     }
   },
-  "title": "Atelier contract 2.1.0"
+  "title": "Atelier contract 2.2.0"
 }

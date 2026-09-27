@@ -124,8 +124,31 @@ def main():
              "retailer_color": "Moss", "retailer_item_name": "Garment-Dyed Overshirt",
              "attributes": {}, "created_at": ts(20)}
 
+    # Palette insights example (contract 2.2.0), computed from the fixture closet.
+    fams: dict = {}
+    for it in items:
+        fams.setdefault(it["primary_color"]["family"], []).append(it)
+    families = [{"family": f, "count": len(v), "share": round(len(v) / len(items), 4),
+                 "hex": v[0]["primary_color"]["hex"]}
+                for f, v in sorted(fams.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
+    all_families = sorted({c["family"] for c in json.loads((ROOT / "colors.json").read_text())["colors"]})
+    neutral_share = round(sum(i["primary_color"]["is_neutral"] for i in items) / len(items), 4)
+    palette = {
+        "item_count": len(items),
+        "neutral_share": neutral_share,
+        "families": families,
+        "swatches": [{"item_id": i["id"], "category": i["category"], "hex": i["primary_color"]["hex"],
+                      "display_name": i["primary_color"].get("display_name"),
+                      "family": i["primary_color"]["family"]} for i in items_newest_first],
+        "missing_families": [f for f in all_families if f not in fams],
+        "insights": [f"{round(neutral_share * 100)}% of your closet is neutral.",
+                     f"Your most common color family is {families[0]['family'].replace('_', ' ')}."],
+        "most_versatile": [{"item_id": I["black-skirt"], "outfit_count": 3}],
+    }
+
     api = {
         "get_health":             (None, {"status": "ok", "db": "ok"}),
+        "get_insights_palette":   (None, palette),
         "post_items_analyze":     ({"_multipart": {"image": "<garment.jpg>", "category": "tops",
                                                    "garment_type": "shirt", "color": "Moss",
                                                    "item_name": "Garment-Dyed Overshirt"}},

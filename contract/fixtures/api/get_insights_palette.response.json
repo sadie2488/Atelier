@@ -1,0 +1,125 @@
+{
+  "item_count": 10,
+  "neutral_share": 0.2,
+  "families": [
+    {
+      "family": "blue",
+      "count": 3,
+      "share": 0.3,
+      "hex": "#a9c4e0"
+    },
+    {
+      "family": "achromatic",
+      "count": 2,
+      "share": 0.2,
+      "hex": "#f4f2ee"
+    },
+    {
+      "family": "green",
+      "count": 2,
+      "share": 0.2,
+      "hex": "#3d7a4a"
+    },
+    {
+      "family": "warm_light",
+      "count": 2,
+      "share": 0.2,
+      "hex": "#d8c3a5"
+    },
+    {
+      "family": "red",
+      "count": 1,
+      "share": 0.1,
+      "hex": "#b23a35"
+    }
+  ],
+  "swatches": [
+    {
+      "item_id": "jacket_de62b7",
+      "category": "jackets",
+      "hex": "#b8864f",
+      "display_name": null,
+      "family": "warm_light"
+    },
+    {
+      "item_id": "jacket_321ef1",
+      "category": "jackets",
+      "hex": "#1f2a44",
+      "display_name": null,
+      "family": "blue"
+    },
+    {
+      "item_id": "bottom_bc47d1",
+      "category": "bottoms",
+      "hex": "#6b6b3a",
+      "display_name": null,
+      "family": "green"
+    },
+    {
+      "item_id": "bottom_eb4185",
+      "category": "bottoms",
+      "hex": "#1c1c1f",
+      "display_name": null,
+      "family": "achromatic"
+    },
+    {
+      "item_id": "bottom_58d301",
+      "category": "bottoms",
+      "hex": "#d8c3a5",
+      "display_name": null,
+      "family": "warm_light"
+    },
+    {
+      "item_id": "bottom_6d035c",
+      "category": "bottoms",
+      "hex": "#3b5b8a",
+      "display_name": null,
+      "family": "blue"
+    },
+    {
+      "item_id": "dress_66fb4a",
+      "category": "tops",
+      "hex": "#3d7a4a",
+      "display_name": null,
+      "family": "green"
+    },
+    {
+      "item_id": "top_0ff3b2",
+      "category": "tops",
+      "hex": "#a9c4e0",
+      "display_name": null,
+      "family": "blue"
+    },
+    {
+      "item_id": "top_869a93",
+      "category": "tops",
+      "hex": "#b23a35",
+      "display_name": null,
+      "family": "red"
+    },
+    {
+      "item_id": "top_fa36c4",
+      "category": "tops",
+      "hex": "#f4f2ee",
+      "display_name": null,
+      "family": "achromatic"
+    }
+  ],
+  "missing_families": [
+    "blue_green",
+    "orange",
+    "purple",
+    "warm_dark",
+    "yellow"
+  ],
+  "insights": [
+    "20% of your closet is neutral.",
+    "Your most common color family is blue."
+  ],
+  "most_versatile": [
+    {
+      "item_id": "bottom_eb4185",
+      "outfit_count": 3
+    }
+  ]
+}

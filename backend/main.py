@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend import config, db, media_store
-from backend.routes import avatar, items, outfits
+from backend.routes import avatar, insights, items, outfits
 
 config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -41,7 +41,7 @@ def health():
     return {"status": "ok", "db": "ok"}
 
 
-for module in (items, outfits, avatar):
+for module in (items, outfits, avatar, insights):
     app.include_router(module.router, prefix="/api")
 
 
