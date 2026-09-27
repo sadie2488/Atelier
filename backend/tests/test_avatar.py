@@ -10,6 +10,7 @@ that scans an avatar and renders would silently place a real, billed Gemini call
 """
 import io
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -529,3 +530,125 @@ def test_background_worker_never_makes_a_real_network_call_by_default(memory_db)
     must fail closed, never reach the network."""
     with pytest.raises(gen_client.GenerationError):
         gen_client.generate_tryon(None, None, None, None, False)
+
+
+# ---------------------------------------------------------------- A7 fix 1: dress + bottom (v2)
+
+def test_prompt_v2_dress_also_describes_the_bottom():
+    from backend.avatar.prompt import PROMPT_VERSION, build_prompt
+    assert PROMPT_VERSION == "v2"
+    text = build_prompt(has_jacket=False, is_dress=True)
+    assert "third image is a bottom" in text
+    assert "dress worn over this bottom" in text
+
+
+def test_dress_outfit_sends_bottom_to_generation(client, memory_db, monkeypatch, tmp_path):
+    """A-R5/A-R7: a dress still has a bottom slot (no exclusion logic) and it must reach Gemini
+    too, not be silently dropped."""
+    calls = []
+
+    def spy(person, top, bottom, jacket, is_dress):
+        calls.append({"bottom": bottom, "is_dress": is_dress})
+        return _half_and_half_image((255, 0, 0), (0, 0, 255))
+
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(gen_client, "generate_tryon", spy)
+    avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
+
+    dress = _write_item(tmp_path, "dress_cccccc", GarmentType.dress, (0, 255, 0), {
+        "left_shoulder": [0.9, 0.0], "right_shoulder": [0.1, 0.0],
+        "left_hip": [0.9, 1.0], "right_hip": [0.1, 1.0],
+    })
+    bottom = _write_item(tmp_path, "bottom_bbbbbb", GarmentType.pants, (0, 0, 255), {
+        "left_hip": [0.9, 0.0], "right_hip": [0.1, 0.0],
+        "left_knee": [0.9, 0.5], "right_knee": [0.1, 0.5],
+        "left_ankle": [0.9, 1.0], "right_ankle": [0.1, 1.0],
+    })
+    dress["primary_color"] = {"lab": RED_LAB}
+    bottom["primary_color"] = {"lab": BLUE_LAB}
+    memory_db["items"].insert_one(dress)
+    memory_db["items"].insert_one(bottom)
+
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "dress_cccccc", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    assert resp.status_code == 200, resp.text
+    _wait_for_settled(memory_db["renders"], resp.json()["render_id"])
+
+    assert len(calls) == 1
+    assert calls[0]["is_dress"] is True
+    assert calls[0]["bottom"] is not None, "the bottom cutout must be sent for a dress outfit too"
+
+
+# ---------------------------------------------------------------- A7 fix 2: stale pending reaping
+
+def _backdate_to_stale(renders_collection, render_id):
+    stale_since = datetime.now(timezone.utc) - timedelta(seconds=service.PENDING_STALE_SECONDS + 1)
+    renders_collection.update_one(
+        {"render_id": render_id},
+        {"$set": {"status": "pending", "generated_url": None, "pending_since": stale_since}},
+    )
+
+
+def test_stale_pending_render_settles_to_failed_on_get(client, memory_db, monkeypatch, tmp_path):
+    """A restart-orphaned `pending` job (backdated pending_since) must not poll forever."""
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
+    _seed_items(memory_db, tmp_path)
+
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    render_id = resp.json()["render_id"]
+
+    # Let the (blocked-by-default) background job settle it once, then re-open it as a long
+    # -stuck `pending` row -- exactly what a process restart mid-generation would leave behind.
+    _wait_for_settled(memory_db["renders"], render_id)
+    _backdate_to_stale(memory_db["renders"], render_id)
+
+    get_resp = client.get(f"/api/render/{render_id}")
+    assert get_resp.status_code == 200
+    body = get_resp.json()
+    assert body["status"] == "failed"
+    assert body["generated_url"] is None
+
+    # The stored doc itself must be settled too, not just this one response.
+    doc = memory_db["renders"].find_one({"render_id": render_id})
+    assert doc["status"] == "failed"
+
+
+def test_stale_pending_render_settles_on_post_cache_hit(client, memory_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
+    _seed_items(memory_db, tmp_path)
+
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    render_id = resp.json()["render_id"]
+    _wait_for_settled(memory_db["renders"], render_id)
+    _backdate_to_stale(memory_db["renders"], render_id)
+
+    resp2 = client.post("/api/render", json=body)  # cache hit path
+    assert resp2.status_code == 200
+    assert resp2.json()["status"] == "failed"
+    assert resp2.json()["render_id"] == render_id
+
+
+def test_fresh_pending_render_is_not_reaped(client, memory_db, monkeypatch, tmp_path):
+    """A job pending well within PENDING_STALE_SECONDS must be left alone."""
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+
+    def _slow(person, top, bottom, jacket, is_dress):
+        time.sleep(0.2)
+        return _half_and_half_image((255, 0, 0), (0, 0, 255))
+
+    monkeypatch.setattr(gen_client, "generate_tryon", _slow)
+    avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
+    _seed_colored_items(memory_db, tmp_path, RED_LAB, BLUE_LAB)
+
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    render_id = resp.json()["render_id"]
+
+    get_resp = client.get(f"/api/render/{render_id}")  # immediately -- nowhere near stale
+    assert get_resp.json()["status"] == "pending"
+
+    _wait_for_settled(memory_db["renders"], render_id)

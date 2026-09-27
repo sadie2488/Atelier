@@ -43,7 +43,7 @@ def generate_tryon(
 
     prompt = build_prompt(has_jacket=jacket_img is not None, is_dress=is_dress)
     contents = [prompt, person_img.convert("RGB"), _flatten(top_img)]
-    if not is_dress and bottom_img is not None:
+    if bottom_img is not None:  # sent for a dress outfit too (A-R5/A-R7, prompt v2)
         contents.append(_flatten(bottom_img))
     if jacket_img is not None:
         contents.append(_flatten(jacket_img))

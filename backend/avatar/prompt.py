@@ -11,7 +11,7 @@ over fidelity, and A-R10's ΔE check gates the swap on color only.
 """
 from backend.config import GEMINI_IMAGE_MODEL
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"  # v2: a dress outfit now also sends and describes the bottom (A-R5/A-R7)
 MODEL = GEMINI_IMAGE_MODEL  # pinned; never "latest" (A-R8)
 
 _PRESERVE = (
@@ -24,13 +24,16 @@ _PRESERVE = (
 
 def build_prompt(has_jacket: bool, is_dress: bool) -> str:
     """The instruction sent alongside images in this fixed order:
-    [person_photo, top_or_dress_cutout, bottom_cutout (omitted for a dress), jacket_cutout?].
-    A dress is a top: it layers over the bottom, no exclusion logic (A-R5).
+    [person_photo, top_or_dress_cutout, bottom_cutout, jacket_cutout?]. A dress is a top: it
+    layers over the bottom, no exclusion logic (A-R5) -- so the bottom is sent and described for
+    a dress outfit too. This is also the point of A-R7's model choice: it follows an
+    instruction, so "a dress layers over a bottom correctly" instead of needing a region mask.
     """
     if is_dress:
         garment_line = (
-            "The second image is a dress. Replace the person's current outfit with this dress, "
-            "worn naturally over their body, matching its actual color and pattern."
+            "The second image is a dress and the third image is a bottom (pants, shorts, or a "
+            "skirt). Replace the person's current outfit with this dress worn over this bottom, "
+            "matching each garment's actual color and pattern."
         )
     else:
         garment_line = (

@@ -77,6 +77,7 @@ def render(body: RenderRequest, db=Depends(get_db)):
     render_id = ids.render_id_for(body.avatar_id, body.top_id, body.bottom_id, body.jacket_id)
     cached = db["renders"].find_one({"render_id": render_id})
     if cached is not None:
+        cached = service.settle_if_stale(cached, db["renders"])
         return RenderJob.model_validate(_clean(cached, RenderJob))
 
     top_doc = db["items"].find_one({"id": body.top_id})
@@ -107,4 +108,5 @@ def get_render(render_id: str, db=Depends(get_db)):
     doc = db["renders"].find_one({"render_id": render_id})
     if doc is None:
         return _error(ErrorCode.not_found, f"No render with id {render_id!r}.")
+    doc = service.settle_if_stale(doc, db["renders"])
     return RenderJob.model_validate(_clean(doc, RenderJob))

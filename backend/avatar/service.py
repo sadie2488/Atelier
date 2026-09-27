@@ -92,6 +92,34 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
     }
 
 
+# A process restart mid-generation orphans a job in `pending` forever, since nothing is left to
+# flip it. Treated as stale (and settled to `failed` on the next read) once older than this --
+# comfortably past the frontend's 45s give-up (BACKEND_API.md), so a genuinely slow-but-alive
+# job is never reaped out from under a client still polling it.
+PENDING_STALE_SECONDS = 90
+
+
+def settle_if_stale(job: dict, renders_collection) -> dict:
+    """A `pending` render older than PENDING_STALE_SECONDS is orphaned -- settle it to `failed`
+    here, on read (GET /render/{id}, or a cache hit in POST /render), instead of leaving it to
+    poll forever. Returns the (possibly updated) doc; a no-op for anything not stale-pending.
+    """
+    if job.get("status") != RenderStatus.pending.value:
+        return job
+    pending_since = job.get("pending_since")
+    if pending_since is None:
+        return job
+    age = (datetime.now(timezone.utc) - pending_since).total_seconds()
+    if age <= PENDING_STALE_SECONDS:
+        return job
+
+    renders_collection.update_one(
+        {"render_id": job["render_id"]},
+        {"$set": {"status": RenderStatus.failed.value, "generated_url": None}},
+    )
+    return {**job, "status": RenderStatus.failed.value, "generated_url": None}
+
+
 def _load_item_layer(item_doc: dict) -> tuple[Image.Image, dict, GarmentType]:
     cutout = media.load_from_url(item_doc["cutout_url"])
     anchors = item_doc.get("anchors") or {}
@@ -132,6 +160,8 @@ def render(
         "local_url": local_url,
         "generated_url": None,
     }
+    if can_generate:
+        job["pending_since"] = datetime.now(timezone.utc)  # DB-only; see settle_if_stale()
     renders_collection.insert_one(job)
 
     if can_generate:
