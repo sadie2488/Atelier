@@ -305,6 +305,20 @@ STRAY_KEEP_AREA_FRAC = 0.10
 # is dropped.
 STRAY_MIN_VERTICAL_OVERLAP_FRAC = 0.5
 
+# Color rule in the same stray step, motivated by top_8cfe59 ("sharp green Whoa So Soft Fitted
+# Sweater Polo"): a 3.6% piece of the model's light-blue denim skirt (median Lab ~80,-7,-2) sat
+# detached inside the top's height near the hem, so the geometric rule kept it. A SMALL piece
+# (below STRAY_KEEP_AREA_FRAC) that survived the geometric rule is still dropped when its median
+# Lab is more than STRAY_COLOR_MIN_DELTA_E (dE2000) from EVERY one of the
+# STRAY_COLOR_DOMINANT_K dominant colors of the large pieces (k=2 so either stripe color
+# survives) AND it reaches into the lowest STRAY_COLOR_BOTTOM_FRAC of the garment's extent or
+# touches the frame edge -- where a neighbouring garment intrudes. Dry run over all 19 saved
+# cutouts (2026-09-27): small pieces measured dE 2.1-6.1 (8cfe59 stripe bands, dress_49ce0b
+# slivers); the denim patch 11.7 was the only one dropped.
+STRAY_COLOR_MIN_DELTA_E = 9.0
+STRAY_COLOR_DOMINANT_K = 2
+STRAY_COLOR_BOTTOM_FRAC = 0.25
+
 # Minimum soft-segmentation confidence to count a pixel as belonging to the chosen person
 # (V-S6: largest person by mask area). Unused since pose-landmarker segmentation masks are not
 # requested (see mp_models.pose_landmarker's docstring); kept for when that mediapipe bug is fixed.

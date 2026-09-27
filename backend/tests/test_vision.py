@@ -350,3 +350,26 @@ def test_list_items_newest_first(client, fake_db):
     resp = client.get("/api/items")
     validated = ItemListResponse.model_validate(resp.json())
     assert [i.id for i in validated.items] == ["top_000002", "top_000001"]
+
+
+def test_stray_color_rule_drops_foreign_patch_keeps_stripe_band():
+    """top_8cfe59: a small detached denim-blue patch near the hem is dropped; a small detached
+    cream stripe band of the garment's own color is kept."""
+    import numpy as np
+    from backend.vision.segmentation import _drop_stray_components
+
+    h, w = 200, 100
+    rgb = np.zeros((h, w, 3), np.uint8)
+    rgb[:] = (220, 210, 185)  # cream garment
+    mask = np.zeros((h, w), bool)
+    mask[10:100, 10:90] = True     # main body
+    mask[110:190, 70:90] = True    # sleeve (large piece)
+    mask[120:130, 10:60] = True    # small cream stripe band, low in the extent
+    mask[160:185, 10:40] = True    # small patch in the bottom region...
+    rgb[160:185, 10:40] = (170, 200, 225)  # ...colored light-blue denim
+    out = _drop_stray_components(mask, rgb)
+    assert out[120:130, 10:60].all()
+    assert not out[160:185, 10:40].any()
+    assert out[10:100, 10:90].all() and out[110:190, 70:90].all()
+    # without rgb the geometric rule alone keeps the patch (unchanged behavior)
+    assert _drop_stray_components(mask)[160:185, 10:40].all()

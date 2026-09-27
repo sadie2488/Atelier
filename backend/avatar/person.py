@@ -178,10 +178,64 @@ def _mask_bbox(
     return (max(0, x0 - pad_x), max(0, y0 - pad_y), min(w, x1 + pad_x), min(h, y1 + pad_y))
 
 
+# Feet-blob fix (2026-09-27, human-flagged): the real-body cutout kept a dark floor-shadow blob
+# fused into the silhouette right under the feet. Inspecting real failing crops (avatar_858d48,
+# avatar_29f549): the shadow is a low-saturation, dark, roughly RECTANGULAR patch bridging the gap
+# BETWEEN the two feet -- it does not make the row wider (the overall left-to-right mask span at
+# the ankle is already the two-feet width; the shadow just fills the transparent gap in between),
+# so a "wider than the shoe" test alone misses it. What distinguishes it: on any row from the ankle
+# down, a dark/desaturated run of mask pixels that has ORDINARY (lighter/more saturated) mask
+# pixels on BOTH sides -- i.e. an interior bridge connecting two separate regions -- is never part
+# of a real shoe, which only touches the row's own left/right edges of the person's mask.
+FEET_SHADOW_SAT_MAX = 40    # 0-255 (HSV S) -- a shadow reads as close to gray
+FEET_SHADOW_VAL_MAX = 90    # 0-255 (HSV V) -- and dark; real shoes usually have some highlight
+MIN_BRIDGE_WIDTH = 5        # px; a fuzzy/textured shoe's dark speckle is thinner than this
+
+
+def _trim_feet_shadow(mask: np.ndarray, crop_rgb: np.ndarray, ankle_y: Optional[float]) -> np.ndarray:
+    """-> `mask` with any floor-shadow bridging the feet trimmed out. `ankle_y`: the average ankle
+    landmark y, in `crop_rgb`'s own pixel coordinates (already offset by the crop's bbox origin)
+    -- None (ankles undetected) leaves the mask untouched. Never touches anything above the ankle
+    line, so a real shoe or leg is never cut -- only an interior dark bridge below it."""
+    if ankle_y is None:
+        return mask
+    h, w = mask.shape
+    zone_top = max(0, int(ankle_y))
+    if zone_top >= h:
+        return mask
+
+    hsv = np.array(Image.fromarray(crop_rgb).convert("HSV"))
+    low_sat_dark = (hsv[:, :, 1] < FEET_SHADOW_SAT_MAX) & (hsv[:, :, 2] < FEET_SHADOW_VAL_MAX)
+
+    trimmed = mask.copy()
+    for row in range(zone_top, h):
+        row_mask = trimmed[row, :]
+        xs = np.where(row_mask)[0]
+        if xs.size == 0:
+            continue
+        row_min, row_max = xs[0], xs[-1]
+
+        dark_idx = np.where(row_mask & low_sat_dark[row, :])[0]
+        if dark_idx.size == 0:
+            continue
+        # Contiguous runs of dark/desaturated mask pixels on this row. A real shadow bridge is a
+        # solid patch (several px wide); a fuzzy/textured shoe's dark speckles between highlights
+        # are thin -- MIN_BRIDGE_WIDTH keeps those from being misread as a bridge and punching a
+        # hole through the shoe itself.
+        splits = np.where(np.diff(dark_idx) > 1)[0] + 1
+        for run in np.split(dark_idx, splits):
+            g0, g1 = run[0], run[-1]
+            if g0 > row_min and g1 < row_max and (g1 - g0 + 1) >= MIN_BRIDGE_WIDTH:
+                trimmed[row, g0:g1 + 1] = False
+    return trimmed
+
+
 def build_person_cutout(
-    rgb: np.ndarray, bbox: tuple[int, int, int, int],
+    rgb: np.ndarray, bbox: tuple[int, int, int, int], ankle_y: Optional[float] = None,
 ) -> Optional[tuple[Image.Image, tuple[int, int, int, int]]]:
-    """Segments only within `bbox` (see `pose_bbox`) -- not the whole frame.
+    """Segments only within `bbox` (see `pose_bbox`) -- not the whole frame. `ankle_y`: the
+    average ankle landmark y in `rgb`'s own full-frame pixel coordinates, used only to trim a
+    floor-shadow/mat from under the feet (see `_trim_feet_shadow`); omit to skip that step.
     -> (rgba_crop, full_frame_bbox) where full_frame_bbox = (x0, y0, x1, y1) is the crop's
     location back in `rgb`'s own pixel coordinates, or None when the mask fails or is implausible
     (the caller then uses `photo_crop_fallback` -- never the drawn mannequin).
@@ -197,6 +251,9 @@ def build_person_cutout(
     cleaned = _close_small_holes(cleaned)
     if cleaned.sum() < MIN_PERSON_FRACTION * cleaned.size:
         return None
+
+    ankle_y_local = (ankle_y - by0) if ankle_y is not None else None
+    cleaned = _trim_feet_shadow(cleaned, crop, ankle_y_local)
 
     tight = _mask_bbox(cleaned, BBOX_PAD_FRACTION, (crop.shape[1], crop.shape[0]))
     if tight is None:

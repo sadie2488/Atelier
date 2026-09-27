@@ -61,6 +61,46 @@ def detect_face_box_near(
     return (cx0 + bx0, cy0 + by0, cx0 + bx1, cy0 + by1)
 
 
+def detect_face_keypoints(rgb: np.ndarray) -> Optional[dict[str, tuple[float, float]]]:
+    """-> {"right_eye": (x,y), "left_eye": (x,y)} in `rgb`'s own pixel coords for the largest
+    detected face, or None. Full-frame detection only -- see detect_face_box's docstring; use
+    `detect_face_keypoints_near` for a full-body frame. ISSUES #22: verify.py's identity check
+    uses the eye positions for a simple face-proportion match against the source photo.
+    """
+    import mediapipe as mp
+
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
+    result = face_detector().detect(mp_image)
+    if not result.detections:
+        return None
+    best = max(result.detections, key=lambda d: d.bounding_box.width * d.bounding_box.height)
+    try:
+        # BlazeFace short-range keypoint order: right_eye, left_eye, nose_tip, mouth_center,
+        # right_ear_tragion, left_ear_tragion (person's own left/right).
+        kps = best.keypoints
+        h, w = rgb.shape[:2]
+        return {"right_eye": (kps[0].x * w, kps[0].y * h), "left_eye": (kps[1].x * w, kps[1].y * h)}
+    except (IndexError, AttributeError, TypeError):
+        return None
+
+
+def detect_face_keypoints_near(
+    rgb: np.ndarray, head_center: tuple[float, float], head_radius: float, pad_factor: float = 3.0,
+) -> Optional[dict[str, tuple[float, float]]]:
+    """`detect_face_keypoints`, cropped around a head estimate first -- see detect_face_box_near."""
+    h, w = rgb.shape[:2]
+    hx, hy = head_center
+    pad = head_radius * pad_factor
+    cx0, cy0 = max(0, int(hx - pad)), max(0, int(hy - pad))
+    cx1, cy1 = min(w, int(hx + pad)), min(h, int(hy + pad))
+    if cx1 <= cx0 or cy1 <= cy0:
+        return None
+    kps = detect_face_keypoints(rgb[cy0:cy1, cx0:cx1])
+    if kps is None:
+        return None
+    return {name: (cx0 + x, cy0 + y) for name, (x, y) in kps.items()}
+
+
 def crop_face(rgb: np.ndarray, box: tuple[int, int, int, int], pad_fraction: float = 0.35) -> Image.Image:
     """Crop the face with padding and remove the background with a soft elliptical alpha mask.
 

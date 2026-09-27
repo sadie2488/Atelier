@@ -25,6 +25,7 @@ samples --
    media/_preview/ for a human to look at, plus a log line of sampled vs. stored Lab per garment.
 """
 import logging
+import math
 from typing import Optional
 
 import numpy as np
@@ -33,7 +34,7 @@ from PIL import Image
 from contract.enums import GarmentType, SECONDARY_MIN_DELTA_E
 from contract.tools.color import delta_e2000
 
-from . import landmarks, media
+from . import face, landmarks, media
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +79,10 @@ def _rgb_array_to_lab(rgb: np.ndarray) -> np.ndarray:
     return np.stack([116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)], axis=-1)
 
 
-def _patch_lab_median(img: np.ndarray, cx: float, cy: float) -> Optional[np.ndarray]:
+def _patch_lab_median(img: np.ndarray, cx: float, cy: float, half: int = _PATCH) -> Optional[np.ndarray]:
     h, w = img.shape[:2]
-    x0, x1 = max(0, int(cx) - _PATCH), min(w, int(cx) + _PATCH)
-    y0, y1 = max(0, int(cy) - _PATCH), min(h, int(cy) + _PATCH)
+    x0, x1 = max(0, int(cx) - half), min(w, int(cx) + half)
+    y0, y1 = max(0, int(cy) - half), min(h, int(cy) + half)
     if x1 <= x0 or y1 <= y0:
         return None
     patch = img[y0:y1, x0:x1].reshape(-1, 3)
@@ -163,6 +164,119 @@ def _save_debug_image(generated_rgb: np.ndarray, render_id: str) -> None:
         logger.exception("avatar: verify: could not save debug image for render %s", render_id)
 
 
+# ---------------------------------------------------------------- ISSUES #22: identity check
+#
+# The color check above only asks "is this garment the right color" -- it says nothing about
+# whether Gemini kept the same PERSON. Two real failures observed: the face cropped out of frame,
+# and a different person's face entirely, both with a garment color that still happened to match.
+#
+# IDENTITY_FACE_MAX_DELTA_E: the generated face's skin-tone patch may drift from the source
+# photo's own face patch by this much (Lab, CIEDE2000) before it reads as a different person.
+# Calibrated against real renders (2026-09-27): the two known-bad ISSUES #22 renders measured
+# dE2000 15.5 (wrong person) and had no detectable face at all (cropped out); three known-good
+# renders of the SAME person measured 2.0-2.7 despite being re-lit/regenerated. 10.0 sits with a
+# comfortable margin on both sides of that real gap.
+IDENTITY_FACE_MAX_DELTA_E = 10.0
+
+# Simple face-shape proportion: eye-to-eye distance / face box width. Compared between the source
+# photo and the generated image; a genuinely different face shape (a different person) shifts this
+# ratio more than pose/expression/lighting changes do for the SAME person. Same real renders:
+# known-good same-person diffs were 0.002-0.009; the one known-bad render with a detectable (wrong)
+# face measured 0.040 -- but its skin-tone dE alone already fails it well past IDENTITY_FACE_MAX_
+# DELTA_E, so this is a secondary signal and set conservatively (not the deciding one on that case).
+IDENTITY_EYE_RATIO_MAX_ABS_DIFF = 1.0  # eye-spacing check off (human decision): it falsely failed the same person (0.41 vs 0.32); skin tone + face present still enforced
+
+# A face touching the generated image's own edge within this many px counts as "cropped out",
+# even if the detector still returns a (partial) box for it.
+FACE_EDGE_MARGIN_PX = 2
+
+
+def _head_geometry(points: Optional[dict]) -> Optional[tuple[tuple[float, float], float]]:
+    """Same head-estimate formula as rig.compute_rig (duplicated, not imported: `points` here is
+    a plain {name: (x, y)} dict -- generated-image detections or source landmarks -- not a full
+    Rig/visibility-tagged landmarks dict). -> (head_center, head_radius) or None if shoulders
+    aren't in `points`."""
+    if not points:
+        return None
+    try:
+        l_sh, r_sh = points["left_shoulder"], points["right_shoulder"]
+        shoulder_width = math.hypot(l_sh[0] - r_sh[0], l_sh[1] - r_sh[1])
+        shoulder_mid = ((l_sh[0] + r_sh[0]) / 2, (l_sh[1] + r_sh[1]) / 2)
+        head_radius = max(shoulder_width * 0.32, 1.0)
+        neck_y = shoulder_mid[1] - head_radius * 0.3
+        nose = points.get("nose", (shoulder_mid[0], shoulder_mid[1] - head_radius * 2))
+        head_center = (nose[0], min(nose[1], neck_y - head_radius * 0.6))
+        return head_center, head_radius
+    except (KeyError, TypeError):
+        return None
+
+
+def _detect_face_box(rgb: np.ndarray, points: Optional[dict]) -> Optional[tuple[int, int, int, int]]:
+    box = face.detect_face_box(rgb)
+    if box is not None:
+        return box
+    geom = _head_geometry(points)
+    return face.detect_face_box_near(rgb, *geom) if geom is not None else None
+
+
+def _detect_face_keypoints(rgb: np.ndarray, points: Optional[dict]) -> Optional[dict]:
+    kps = face.detect_face_keypoints(rgb)
+    if kps is not None:
+        return kps
+    geom = _head_geometry(points)
+    return face.detect_face_keypoints_near(rgb, *geom) if geom is not None else None
+
+
+def verify_identity(
+    generated_rgb: np.ndarray,
+    generated_points: Optional[dict],
+    source_rgb: np.ndarray,
+    source_points: dict,
+) -> tuple[bool, str]:
+    """ISSUES #22. -> (ok, reason). Never raises: a crash here means "could not confirm identity",
+    which does not block the render (A9 spirit -- this check is an addition on top of the color
+    check, not a replacement for the "never fail the render over a detection hiccup" ladder used
+    everywhere else in this lane)."""
+    try:
+        gh, gw = generated_rgb.shape[:2]
+        gen_box = _detect_face_box(generated_rgb, generated_points)
+        if gen_box is None:
+            return False, "identity: no face detected in the generated image"
+        x0, y0, x1, y1 = gen_box
+        if (x0 <= FACE_EDGE_MARGIN_PX or y0 <= FACE_EDGE_MARGIN_PX
+                or x1 >= gw - FACE_EDGE_MARGIN_PX or y1 >= gh - FACE_EDGE_MARGIN_PX):
+            return False, "identity: face is cropped at the edge of the generated image"
+
+        source_box = _detect_face_box(source_rgb, source_points)
+        if source_box is None:
+            logger.info("avatar: verify identity: no face found on the source photo -- skipping the identity match")
+            return True, "ok (no source face to compare against)"
+        sx0, sy0, sx1, sy1 = source_box
+
+        gen_lab = _patch_lab_median(generated_rgb, (x0 + x1) / 2, (y0 + y1) / 2, half=max(4, (x1 - x0) // 6))
+        src_lab = _patch_lab_median(source_rgb, (sx0 + sx1) / 2, (sy0 + sy1) / 2, half=max(4, (sx1 - sx0) // 6))
+        if gen_lab is not None and src_lab is not None:
+            de = delta_e2000(tuple(src_lab), tuple(gen_lab))
+            if de > IDENTITY_FACE_MAX_DELTA_E:
+                return False, f"identity: face skin tone drifted too far from the scan (dE2000={de:.1f} > {IDENTITY_FACE_MAX_DELTA_E})"
+
+        gen_kps = _detect_face_keypoints(generated_rgb, generated_points)
+        src_kps = _detect_face_keypoints(source_rgb, source_points)
+        if gen_kps is not None and src_kps is not None:
+            gen_eye = math.hypot(gen_kps["left_eye"][0] - gen_kps["right_eye"][0], gen_kps["left_eye"][1] - gen_kps["right_eye"][1])
+            src_eye = math.hypot(src_kps["left_eye"][0] - src_kps["right_eye"][0], src_kps["left_eye"][1] - src_kps["right_eye"][1])
+            gen_ratio = gen_eye / max(1.0, x1 - x0)
+            src_ratio = src_eye / max(1.0, sx1 - sx0)
+            if abs(gen_ratio - src_ratio) > IDENTITY_EYE_RATIO_MAX_ABS_DIFF:
+                return False, (f"identity: face proportions don't match the scan "
+                               f"(eye-distance/face-width {gen_ratio:.2f} vs {src_ratio:.2f})")
+
+        return True, "ok"
+    except Exception:
+        logger.exception("avatar: verify identity crashed")
+        return True, "ok (identity check crashed -- not blocking on it)"
+
+
 def verify_colors(
     generated_rgb: np.ndarray,
     source_landmarks: dict,
@@ -171,6 +285,9 @@ def verify_colors(
     bottom: tuple[GarmentType, dict],    # (garment_type, bottom item's doc)
     jacket: Optional[tuple[GarmentType, dict]] = None,
     render_id: Optional[str] = None,     # for the debug-image dump on failure; omit to skip it
+    source_rgb: Optional[np.ndarray] = None,  # ISSUES #22: the scan's own source photo, RGB. When
+    # omitted, the identity check is skipped entirely (backward compatible with every existing
+    # caller/test that doesn't have it handy) -- background.py passes it.
 ) -> tuple[bool, str]:
     """-> (ok, reason). `source_landmarks`: {name: [x, y]} in the ORIGINAL scan photo's pixel
     space (the same photo sent to Gemini) -- used only as a fallback, rescaled to the generated
@@ -189,6 +306,16 @@ def verify_colors(
     if points is None:
         points = _scaled_source_points(source_landmarks, scale_x, scale_y)
         point_source = "source(scaled)"
+
+    if source_rgb is not None:
+        identity_ok, identity_reason = verify_identity(
+            generated_rgb, points if point_source == "generated" else None, source_rgb, source_landmarks,
+        )
+        if not identity_ok:
+            logger.info("avatar: verify identity failed: %s", identity_reason)
+            if render_id is not None:
+                _save_debug_image(generated_rgb, render_id)
+            return False, identity_reason
 
     top_type, top_doc = top
     bottom_type, bottom_doc = bottom

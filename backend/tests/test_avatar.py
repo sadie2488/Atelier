@@ -613,19 +613,12 @@ def test_render_endpoint_local_composite_and_cache(client, memory_db, monkeypatc
     calls = []
     monkeypatch.setattr(service, "render", lambda *a, **k: calls.append(1) or real_render(*a, **k))
 
-    t1 = time.perf_counter()
     resp2 = client.post("/api/render", json=body)
-    cached_ms = (time.perf_counter() - t1) * 1000
     assert resp2.status_code == 200
     job2 = resp2.json()
     assert job2["render_id"] == render_id
-    assert job2["status"] == "failed"
-    assert calls == [], "cache hit must not recompute the composite"
-    assert cached_ms < 200, f"cached lookup took {cached_ms:.0f}ms"
-
-    get_resp = client.get(f"/api/render/{render_id}")
-    assert get_resp.status_code == 200
-    assert get_resp.json() == job2
+    assert job2["status"] == "pending"          # a failed try-on is retried, not cached forever
+    assert calls == [1], "a failed render must be rebuilt on the next request"
 
 
 def test_scan_stores_avatar_images_in_durable_media_store(client, memory_db, monkeypatch, tmp_path, memory_media):
@@ -744,6 +737,11 @@ def _render_with_generation(client, memory_db, monkeypatch, tmp_path, generate_f
     # fallback and stay fast; the generated-image-detection path itself is covered directly
     # against verify.verify_colors below.
     monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    # ISSUES #22: these synthetic images have no face at all (flat color blocks), so the identity
+    # check would (correctly) reject every one of them -- bypassed here for the same reason the
+    # pose-detection fallback above is forced; the identity check itself is covered directly
+    # against verify.verify_identity/verify_colors below, with real face-containing fixtures.
+    monkeypatch.setattr(verify, "verify_identity", lambda *a, **k: (True, "ok (bypassed for synthetic test image)"))
     avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
     _seed_colored_items(memory_db, tmp_path, RED_LAB, BLUE_LAB)
 
@@ -980,6 +978,9 @@ def test_render_returns_immediately_even_with_a_slow_generator(client, memory_db
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")  # generation "possible" -- see
     # no_real_secrets in conftest.py, which blanks this by default for every test.
     monkeypatch.setattr(gen_client, "generate_tryon", _slow)
+    # ISSUES #22: a flat color block has no face -- bypass identity here too (see
+    # _render_with_generation's identical comment); this test is about timing, not verification.
+    monkeypatch.setattr(verify, "verify_identity", lambda *a, **k: (True, "ok (bypassed for synthetic test image)"))
     avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
     _seed_colored_items(memory_db, tmp_path, RED_LAB, BLUE_LAB)
 
@@ -1280,3 +1281,91 @@ def test_skin_sampling_falls_back_to_face_region_when_no_skin_pixels(monkeypatch
     r, g, b = skin.sample_skin_tone(rgb, {"nose": (15.0, 15.0, 0.99)}, face_patch_center=(15.0, 15.0))
     assert (r, g, b) != (10, 200, 10)
     assert abs(r - 220) <= 3 and abs(g - 180) <= 3 and abs(b - 150) <= 3
+
+
+# ---------------------------------------------------------------- ISSUES #22: identity check
+
+MODEL_PHOTOS_DIR = Path(__file__).resolve().parents[1] / "avatar" / "models"
+
+
+def _load_model_photo(name: str) -> tuple[np.ndarray, dict]:
+    """-> (rgb, points). Real pose landmarks are needed for _head_geometry to seed the
+    face-near-head crop -- these are full-body photos, too small for direct full-frame face
+    detection (see face.py's docstring), exactly like a real avatar scan/generated render."""
+    from PIL import ImageOps
+    from backend.avatar.landmarks import detect_landmarks as _detect_landmarks
+    path = MODEL_PHOTOS_DIR / f"model.{name}.jpeg"
+    img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+    img = service._downscale(img)
+    rgb = np.asarray(img)
+    lm = _detect_landmarks(rgb)
+    points = {n: (v[0], v[1]) for n, v in lm.items()} if lm is not None else {}
+    return rgb, points
+
+
+def test_verify_identity_passes_for_the_same_person():
+    """The simplest real check: a photo verified against ITSELF must never be flagged as a
+    different person or a cropped-out face."""
+    rgb, points = _load_model_photo("sadie")
+    ok, reason = verify.verify_identity(rgb, points, rgb, points)
+    assert ok, reason
+
+
+@pytest.mark.xfail(reason="human decision 2026-09-27: eye-spacing check disabled (false failures on real "
+                          "try-ons); skin tone alone doesn't separate these two faces", strict=False)
+def test_verify_identity_fails_for_a_different_person():
+    """ISSUES #22: a real generation swap -- two different real faces -- must be caught."""
+    source, source_points = _load_model_photo("sadie")
+    generated, generated_points = _load_model_photo("lalitha")
+    ok, reason = verify.verify_identity(generated, generated_points, source, source_points)
+    assert not ok
+    assert reason.startswith("identity:")
+
+
+def test_verify_identity_fails_when_face_is_cropped_out_of_frame():
+    """ISSUES #22: Gemini sometimes crops the face out entirely -- no face at all must fail, not
+    silently pass because the garment color happened to match."""
+    source, source_points = _load_model_photo("sadie")
+    # The bottom third of the photo -- legs/feet only, no face anywhere in frame. No pose landmarks
+    # passed for it either (a real crop this tight wouldn't detect a pose pointing at a head above
+    # the frame), so there's nothing to seed a face-near-head search with.
+    h, w = source.shape[:2]
+    legs_only = source[round(h * 0.7):, :]
+    ok, reason = verify.verify_identity(legs_only, None, source, source_points)
+    assert not ok
+    assert reason == "identity: no face detected in the generated image"
+
+
+def test_verify_identity_never_raises_on_garbage_input():
+    """A9 spirit: a detection crash must not become an unhandled exception. A total non-photo on
+    both sides has no face anywhere -- correctly rejected, not silently passed, and (the actual
+    point of this test) no exception escapes `verify_identity` over it."""
+    garbage = np.zeros((5, 5, 3), dtype=np.uint8)
+    ok, reason = verify.verify_identity(garbage, None, garbage, {})
+    assert ok is False
+    assert reason == "identity: no face detected in the generated image"
+
+
+def test_bottom_with_hallucinated_hip_anchors_is_placed_body_width_and_upright(tmp_path, monkeypatch, capsys):
+    """Real catalog regression: pose landmarks on headless bottoms photos land off the garment
+    (hips below the cutout, 30 deg apart). Placement must reject them and size the waistband to
+    the avatar's hips instead of blowing the cutout up 2-10x and tilting it."""
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    rig, canvas_size, _ = _avatar_doc_from_good_pose()
+    item = _write_item(tmp_path, "bottom_000009", GarmentType.pants, (0, 0, 255), {
+        "left_hip": [0.27, 1.27], "right_hip": [0.15, 1.27],
+        "left_knee": [0.27, 1.33], "right_knee": [0.14, 1.28],
+        "left_ankle": [0.26, 1.35], "right_ankle": [0.20, 1.27],
+    }, size=(120, 300))
+    from backend.avatar.service import _load_item_layer
+    from backend.avatar.placement import place_item, WAISTBAND_TO_HIP_JOINT
+    cutout, anchors, garment_type = _load_item_layer(item)
+    layer = place_item(cutout, anchors, garment_type, rig, canvas_size)
+    assert "implausible" in capsys.readouterr().out
+    alpha = np.array(layer)[:, :, 3] > 0
+    ys, xs = np.where(alpha)
+    top_row = np.where(alpha[ys.min()])[0]
+    width = top_row.max() - top_row.min() + 1
+    assert abs(width / (WAISTBAND_TO_HIP_JOINT * rig.hip_width) - 1.0) < 0.1
+    # upright: the top row is as wide as the whole layer (a rotated rectangle's is not)
+    assert width >= 0.95 * (xs.max() - xs.min() + 1)

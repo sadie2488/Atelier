@@ -46,6 +46,12 @@ class FakeCollection:
     def insert_one(self, doc):
         self.docs.append(dict(doc))
 
+    def delete_one(self, flt):
+        for i, d in enumerate(self.docs):
+            if self._match(d, flt):
+                del self.docs[i]
+                return
+
     def update_one(self, flt, update, upsert=False):
         """Supports {"$set": {...}} only."""
         for d in self.docs:

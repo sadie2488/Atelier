@@ -65,6 +65,7 @@ def _run(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collect
             bottom=(GarmentType(bottom_doc["garment_type"]), bottom_doc),
             jacket=jacket_arg,
             render_id=render_id,
+            source_rgb=np.asarray(person_img),  # ISSUES #22: identity check against the scan's own face
         )
         if not ok:
             logger.info("avatar: render %s failed verification: %s", render_id, reason)

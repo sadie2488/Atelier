@@ -78,8 +78,9 @@ def build_avatar_visuals(rgb: np.ndarray, landmarks: dict) -> dict:
     rig = compute_rig(landmarks)
     frame_size = (rgb.shape[1], rgb.shape[0])
     bbox = person.pose_bbox(rig, landmarks, frame_size)
+    ankle_y = (rig.landmarks["left_ankle"][1] + rig.landmarks["right_ankle"][1]) / 2.0
 
-    cutout = person.build_person_cutout(rgb, bbox)
+    cutout = person.build_person_cutout(rgb, bbox, ankle_y=ankle_y)
     if cutout is not None:
         crop_img, full_bbox = cutout
         avatar_kind = "real_body"

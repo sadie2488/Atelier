@@ -78,7 +78,10 @@ def render(body: RenderRequest, db=Depends(get_db)):
     cached = db["renders"].find_one({"render_id": render_id})
     if cached is not None:
         cached = service.settle_if_stale(cached, db["renders"])
-        return RenderJob.model_validate(_clean(cached, RenderJob))
+        if cached.get("status") != "failed":
+            return RenderJob.model_validate(_clean(cached, RenderJob))
+        # A failed try-on is retried when the user asks again, not cached forever.
+        db["renders"].delete_one({"render_id": render_id})
 
     top_doc = db["items"].find_one({"id": body.top_id})
     if top_doc is None:
