@@ -69,6 +69,16 @@ class FakeDB(dict):
 
 
 @pytest.fixture(autouse=True)
+def no_real_secrets(monkeypatch):
+    """Tests never depend on (or use) the developer's backend/.env: no Gemini key, no real DB URI.
+    A test that needs generation to be *possible* sets config.GEMINI_API_KEY itself."""
+    from backend import config
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(config, "MONGODB_URI", "")
+
+
+@pytest.fixture(autouse=True)
 def isolated_media_dir(monkeypatch, tmp_path_factory):
     """Every test gets its own media directory: tests never read, write, or delete real media."""
     from backend import config

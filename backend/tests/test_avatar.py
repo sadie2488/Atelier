@@ -528,11 +528,14 @@ def _seed_items(memory_db, tmp_path):
 
 
 def test_render_endpoint_local_composite_and_cache(client, memory_db, monkeypatch, tmp_path):
-    """The local composite path (A1-A6), with generation "possible" (a real key is configured)
-    but blocked by the autouse fixture -- exercises the full pending -> failed settle, not just
-    the pre-A7 shortcut.
+    """The local composite path (A1-A6), with generation "possible" (a key is configured) but
+    blocked by the no-network autouse fixture -- exercises the full pending -> failed settle, not
+    just the pre-A7 shortcut.
     """
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")  # generation "possible"; the
+    # no_real_secrets autouse fixture (conftest.py) blanks this by default so tests never depend
+    # on backend/.env -- generate_tryon itself is still blocked by _no_network_generation above.
     avatar = _scan_ok(monkeypatch, client, memory_db)
     _seed_items(memory_db, tmp_path)
 
@@ -680,6 +683,8 @@ def _render_with_generation(client, memory_db, monkeypatch, tmp_path, generate_f
     """Scan (with a big enough source photo for A7 sampling), seed red-top/blue-bottom items,
     monkeypatch the Gemini call, POST /render, and wait for the background job to settle."""
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")  # generation "possible" -- see
+    # no_real_secrets in conftest.py, which blanks this by default for every test.
     monkeypatch.setattr(gen_client, "generate_tryon", generate_fn)
     # These synthetic "generated" images are flat color blocks -- real pose detection on them
     # would (correctly) find nobody. Force that path deterministically rather than relying on
@@ -888,6 +893,8 @@ def test_render_returns_immediately_even_with_a_slow_generator(client, memory_db
         return _half_and_half_image((255, 0, 0), (0, 0, 255))
 
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")  # generation "possible" -- see
+    # no_real_secrets in conftest.py, which blanks this by default for every test.
     monkeypatch.setattr(gen_client, "generate_tryon", _slow)
     avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
     _seed_colored_items(memory_db, tmp_path, RED_LAB, BLUE_LAB)
@@ -961,6 +968,8 @@ def test_dress_outfit_sends_bottom_to_generation(client, memory_db, monkeypatch,
         return _half_and_half_image((255, 0, 0), (0, 0, 255))
 
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")  # generation "possible" -- see
+    # no_real_secrets in conftest.py, which blanks this by default for every test.
     monkeypatch.setattr(gen_client, "generate_tryon", spy)
     monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)  # see _render_with_generation
     avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
@@ -1045,6 +1054,8 @@ def test_stale_pending_render_settles_on_post_cache_hit(client, memory_db, monke
 def test_fresh_pending_render_is_not_reaped(client, memory_db, monkeypatch, tmp_path):
     """A job pending well within PENDING_STALE_SECONDS must be left alone."""
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")  # generation "possible" -- see
+    # no_real_secrets in conftest.py, which blanks this by default for every test.
 
     def _slow(person, top, bottom, jacket, is_dress):
         time.sleep(0.2)
