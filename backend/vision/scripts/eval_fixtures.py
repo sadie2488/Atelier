@@ -1,5 +1,6 @@
-"""Debug probe: run V1-V4 over every fixtures/images/*.png and report candidate-check pass
-rates, primary-color family agreement against the filename's true hex, and analyze latency.
+"""Debug probe: run V1-V4 over every fixtures/images/* (png/jpg/jpeg/webp) and report
+candidate-check pass rates, primary-color family agreement against the filename's true hex,
+and analyze latency.
 Not imported anywhere; not a test (no assertions, no fixtures/golden dependency -- V-Q4 golden
 references don't exist yet).
 
@@ -43,7 +44,8 @@ def infer_category(garment_type: GarmentType) -> Category:
 
 def main():
     images_dir = REPO_ROOT / "fixtures" / "images"
-    files = sorted(images_dir.glob("*.png"))
+    exts = {".png", ".jpg", ".jpeg", ".webp"}
+    files = sorted(p for p in images_dir.iterdir() if p.suffix.lower() in exts)
     latencies = []
     agree, total_scored = 0, 0
     check_totals: dict[str, list[bool]] = {}
