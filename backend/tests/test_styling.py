@@ -953,3 +953,38 @@ def test_style_skips_planned_rotation(monkeypatch, client, fake_db, fixture_item
     for _ in range(3):
         for o in _styled(client, "business"):
             assert o.top_id != "top_a00001"
+
+
+# ------------------------------------------------------------------ explanation wording fixes
+
+def test_saturated_purple_maps_to_purple_not_navy():
+    purple_lab = (31.0, 45.0, -49.0)  # hue ~313, a satin purple skirt
+    assert PG.guide_color(purple_lab, "skirt") == "purple"
+    assert PG.guide_color(purple_lab, "top") == "purple"
+    assert PG.guide_color(hex_to_lab("#7a4a63"), "skirt") == "purple"
+    assert PG.guide_color(hex_to_lab("#1b2a5a"), "skirt") == "navy"
+
+
+def test_guide_sentence_never_names_a_color_the_outfit_lacks():
+    black_cami = {"garment_type": "top", "primary_color": {"lab": hex_to_lab("#000000"), "name": "black"}}
+    purple_skirt = {"garment_type": "skirt", "primary_color": {"lab": (31.0, 45.0, -49.0), "name": "purple"}}
+    sentence = PG.guide_sentence(black_cami, purple_skirt)
+    assert sentence is None or "navy" not in sentence
+    # A guide color that disagrees with the stored color name suppresses the sentence.
+    mislabeled = {"garment_type": "skirt", "primary_color": {"lab": hex_to_lab("#1b2a5a"), "name": "purple"}}
+    assert PG.guide_sentence(black_cami, mislabeled) is None
+    navy_skirt = {"garment_type": "skirt", "primary_color": {"lab": hex_to_lab("#1b2a5a"), "name": "navy"}}
+    pink = {"garment_type": "shirt", "primary_color": {"lab": hex_to_lab("#f4c2c2"), "name": "pink"}}
+    assert PG.guide_sentence(pink, navy_skirt) == "Pink and navy are an easy classic pairing."
+
+
+def test_all_neutral_sandwich_does_not_claim_contrast():
+    from backend.styling.explain import fallback_explanation, guided_fallback
+    cream = _item("top_1", _color(92, 6, 85, family="warm_light", is_neutral=True, name="cream"))
+    black_jeans = _item("bottom_1", NEUTRAL_BLACK)
+    black_jacket = _item("jacket_1", NEUTRAL_BLACK)
+    text = fallback_explanation(Strategy.sandwich, cream, black_jeans, black_jacket)
+    assert text == "Tonal neutrals layered light against dark."
+    assert "contrast" not in guided_fallback(Strategy.sandwich, cream, black_jeans, black_jacket)
+    # A chromatic top still gets the contrasting-top wording.
+    assert "contrasting" in fallback_explanation(Strategy.sandwich, _SANDWICH_TOP, black_jeans, black_jacket)

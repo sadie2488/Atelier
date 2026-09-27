@@ -24,7 +24,9 @@ GUIDE_SWATCHES: dict[str, tuple[str, ...]] = {
     "dark green": ("#145a32",),
     "light blue": ("#c9e0f2",),
     "navy": ("#1b2a5a", "#1f4e79"),
-    "purple": ("#7a4a63",),
+    # Muted mauve from the chart plus violet/plum swatches: with only the mauve, a saturated
+    # purple (hue ~313) sat nearer the navy swatch and was described as "navy".
+    "purple": ("#7a4a63", "#5b2a86", "#6a3d9a", "#8e44ad", "#4b2a6b"),
     "burgundy": ("#612a44",),
     "brown": ("#5a3a2e", "#6b4a3e"),
     "grey": ("#a9a9a9", "#b0b7bf", "#6e6e6e"),
@@ -114,13 +116,52 @@ def _describe(item: dict) -> str:
         L, C, h = lab_to_lch(tuple(lab))
         if C >= W.DENIM_MIN_CHROMA and W.DENIM_HUE_MIN_DEG <= h <= W.DENIM_HUE_MAX_DEG:
             return "light-wash denim" if name == "light blue" else "dark denim"
+    # Speak the garment's own stored color name (e.g. "cream", not the guide's "beige") so the
+    # sentence never names a color the outfit doesn't show; _name_agrees already vetted it.
+    stored = (item.get("primary_color") or {}).get("name")
+    if stored and stored != "unmapped":
+        return stored.replace("light_gray", "light grey").replace("gray", "grey").replace("_", " ")
     return name
 
 
+# Stored color names (contract/colors.json) each guide color may plausibly describe. The
+# guide sentence names colors out loud, so it is only emitted when both garments' own color
+# names agree with the guide color picked for them.
+GUIDE_NAME_AGREES: dict[str, frozenset] = {
+    "pink": frozenset({"pink", "red", "purple"}),
+    "red": frozenset({"red", "pink", "burgundy", "orange"}),
+    "orange": frozenset({"orange", "red", "camel", "tan", "yellow"}),
+    "beige": frozenset({"cream", "beige", "tan", "camel", "white", "light_gray"}),
+    "yellow": frozenset({"yellow", "orange", "cream"}),
+    "green": frozenset({"green", "olive", "teal"}),
+    "dark green": frozenset({"green", "olive", "teal"}),
+    "light blue": frozenset({"light_blue", "blue", "denim"}),
+    "navy": frozenset({"navy", "blue", "denim"}),
+    "purple": frozenset({"purple", "burgundy", "pink"}),
+    "burgundy": frozenset({"burgundy", "red", "purple", "brown"}),
+    "brown": frozenset({"brown", "camel", "tan", "burgundy"}),
+    "grey": frozenset({"gray", "light_gray", "charcoal"}),
+    "white": frozenset({"white", "cream", "light_gray"}),
+    "black": frozenset({"black", "charcoal"}),
+}
+
+
+def _name_agrees(item: dict) -> bool:
+    """False when the garment's stored color name contradicts its guide color (items with no
+    stored name are trusted)."""
+    name = (item.get("primary_color") or {}).get("name")
+    if not name:
+        return True
+    return name in GUIDE_NAME_AGREES.get(item_guide_color(item), frozenset())
+
+
 def guide_sentence(top: dict, bottom: dict) -> str | None:
-    """One plain sentence when the guide lists the top+bottom pair; None otherwise."""
+    """One plain sentence when the guide lists the top+bottom pair and both named guide colors
+    agree with the garments' own color names; None otherwise."""
     quality = item_pair_quality(top, bottom)
     if quality not in ("complementary", "tonal"):
+        return None
+    if not (_name_agrees(top) and _name_agrees(bottom)):
         return None
     t, b = _describe(top), _describe(bottom)
     if t == b:

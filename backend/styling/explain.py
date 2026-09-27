@@ -47,6 +47,22 @@ _SANDWICH_SAME_FAMILY = (
 )
 
 
+_SANDWICH_NEUTRAL = "Tonal neutrals layered light against dark."
+
+
+def _is_neutral_piece(item: dict | None) -> bool:
+    c = (item or {}).get("primary_color") or {}
+    return bool(c.get("is_neutral")) or c.get("family") in ("achromatic", "warm_light", "warm_dark")
+
+
+def _neutral_sandwich(strategy: Strategy, top: dict | None, bottom: dict | None, jacket: dict | None) -> bool:
+    """True for a sandwich where every piece is a neutral: nothing "contrasts" there."""
+    return (
+        strategy == Strategy.sandwich and top is not None and bottom is not None and jacket is not None
+        and all(_is_neutral_piece(p) for p in (top, bottom, jacket))
+    )
+
+
 def _loose_sandwich(strategy: Strategy, bottom: dict | None, jacket: dict | None) -> bool:
     """True for a sandwich whose jacket and bottom share only a family, not a visibly similar
     color (e.g. black jacket + light-gray jeans): "share a color" would be false there."""
@@ -64,7 +80,10 @@ def fallback_explanation(
 ) -> str:
     """Static per-strategy explanation (S-E3). Always non-empty for every ladder strategy.
     With the pieces given, a sandwich only claims a shared color when the jacket and bottom
-    colors are actually close (weights.EXPLAIN_SHARED_COLOR_MAX_DELTA_E)."""
+    colors are actually close (weights.EXPLAIN_SHARED_COLOR_MAX_DELTA_E), and an all-neutral
+    sandwich is described as tonal layering rather than a contrasting top."""
+    if _neutral_sandwich(strategy, top, bottom, jacket):
+        return _SANDWICH_NEUTRAL
     if _loose_sandwich(strategy, bottom, jacket):
         fam = jacket["primary_color"]["family"]
         words = "neutrals" if fam == "achromatic" else f"{fam.replace('_', ' ')} tones"
@@ -116,7 +135,7 @@ def explain(strategy: Strategy, top: dict, bottom: dict, jacket: dict | None) ->
     non-empty (S-E4). Prefer `explain_many` when explaining a batch of outfits."""
     from backend import config
 
-    if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket):
+    if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket) or _neutral_sandwich(strategy, top, bottom, jacket):
         return fallback_explanation(strategy, top, bottom, jacket)
 
     key = _cache_key(strategy, top, bottom, jacket)
@@ -162,7 +181,8 @@ def explain_many(
     for i, (strategy, top, bottom, jacket) in enumerate(requests):
         # A family-only sandwich stays deterministic: Gemini told "sandwich" tends to claim a
         # shared color that isn't there.
-        if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket):
+        if (not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket)
+                or _neutral_sandwich(strategy, top, bottom, jacket)):
             results[i] = _with_lead(lead, guided_fallback(*requests[i]))
             continue
 
