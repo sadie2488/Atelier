@@ -91,6 +91,29 @@ JACKET_MIN_COMPATIBILITY = 0.4
 # Re-exported for readability where scorer.py needs the shared neutral-chroma threshold.
 NEUTRAL_CHROMA_MAX = NEUTRAL_CHROMA_MAX
 
+# ---- variety in selection (S4, human request: "generate outfits should generate different
+# ones each time"). The scorer stays pure and deterministic (S-C1) -- these tunables only
+# affect which of the *eligible, rule-satisfying* candidates get picked in select.py, never
+# their scores.
+
+# Quality floor for the candidate pool eligible for random selection: a candidate qualifies if
+# its score clears this absolute bar, OR (union, not intersection -- this is what keeps a weak
+# closet non-empty per S-L3) it is within VARIETY_POOL_MARGIN of the best score seen. Everything
+# below both bars is excluded from variety entirely, even under a low limit.
+VARIETY_MIN_SCORE = 0.6
+VARIETY_POOL_MARGIN = 0.15
+
+# Weighted-random-without-replacement exponent: sampling weight = max(score, epsilon) ** this.
+# Higher = more tightly weighted toward the top of the pool (less variety); lower = closer to
+# uniform random among the pool (more variety, including weaker-but-still-eligible pairs).
+VARIETY_SCORE_EXPONENT = 3.0
+
+# Multiplier applied to a candidate's sampling weight when it appeared in the immediately
+# previous response and there weren't enough fresh alternatives to exclude repeats outright
+# (see select.py's exclude-vs-downweight rule). Small but nonzero: a repeat is unlikely, not
+# impossible, when the pool is otherwise thin.
+VARIETY_REPEAT_PENALTY = 0.15
+
 # ---- explanations (S-E4): the whole batch of Gemini explanations for one
 # POST /api/outfits/generate response must return within this fixed wall-clock budget,
 # regardless of how many outfits are being explained or how slow Gemini is. Any explanation

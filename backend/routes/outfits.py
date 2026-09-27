@@ -4,6 +4,8 @@ Reads items via `backend.db.get_db()["items"]` through FastAPI's dependency syst
 can override it with an in-memory fake (S-I2: the items collection may be empty for this
 lane's entire duration, including in production before the vision lane has saved anything).
 """
+import random
+
 from fastapi import APIRouter, Depends
 
 from backend.db import get_db
@@ -15,6 +17,14 @@ from backend.styling.explain import explain_many
 from backend.styling.strategies import generate_candidates
 
 router = APIRouter(prefix="/outfits", tags=["outfits"])
+
+# S4 (variety): the frontend sends no state across calls, so this process keeps a small
+# in-process memory of the previous response's outfit_ids (fine for the demo -- not durable,
+# not shared across processes) plus its own unseeded RNG, so repeat calls tend not to just
+# replay the same top outfit. Tests inject their own seeded rng/previous_ids into
+# select_outfits directly instead of touching this module state.
+_rng = random.Random()
+_last_outfit_ids: set[str] = set()
 
 
 def _to_item(doc: dict) -> Item:
@@ -48,7 +58,13 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
         for strategy, top, bottom, jacket, score in generate_candidates(tops, bottoms, jackets)
     ]
 
-    chosen = select_mod.select_outfits(candidates, min(req.limit, W.OUTFITS_MAX))
+    chosen = select_mod.select_outfits(
+        candidates, min(req.limit, W.OUTFITS_MAX), rng=_rng, previous_ids=_last_outfit_ids
+    )
+    _last_outfit_ids.clear()
+    _last_outfit_ids.update(
+        select_mod.make_outfit_id(c["top_id"], c["bottom_id"], c["jacket_id"]) for c in chosen
+    )
 
     # One shared-deadline batch call (S-E4), not one blocking call per outfit: a slow/hanging
     # Gemini must not multiply the response latency by the number of outfits.
