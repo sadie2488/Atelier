@@ -8,6 +8,11 @@ the legs/feet silhouette (below the hips only), and optionally upscale 2x.
 --preview writes media/_preview/polish_<short>_before_after.png only.
 --apply overwrites the avatar PNG (same key, media.save_png) and, if --scale 2, the wireframe PNG
 and the doc's canvas_w/canvas_h/rig (canvas coordinates). Debug aid, not part of the API.
+
+--fix-ankles works on the CURRENT (already polished, any scale) avatar in place: per lower leg
+(mid-shin down) it fills concave dents in the left/right silhouette edges (1-D grey closing of
+the per-row extents), never removing pixels. Preview: media/_preview/ankle_fix_<short>.png.
+--apply-ankles saves the result over the avatar PNG (same key, same size, no doc change).
 """
 import argparse
 import sys
@@ -152,6 +157,126 @@ def polish(doc, avatar, photo, scale):
     return Image.fromarray(out, "RGBA"), int(newpx.sum())
 
 
+def _source_at_canvas_scale(doc, photo, size):
+    """Source photo aligned to the current canvas. The canvas may be s x the source scale (after
+    polish --scale 2); s is recovered from rig vs source landmark spans, then canvas/s + off = source."""
+    W, H = size
+    rl, sl = doc["rig"]["landmarks"], doc["source_landmarks"]
+    span = lambda d: np.hypot(*np.subtract(d["left_ankle"], d["nose"]))
+    s = max(1, int(round(span(rl) / span(sl))))
+    sx, sy = sl["nose"]
+    off = (int(round(sx - rl["nose"][0] / s)), int(round(sy - rl["nose"][1] / s)))
+    native = _source_on_canvas(np.array(photo.convert("RGB")), off, (W // s, H // s))
+    if s == 1:
+        return native, off, s
+    return np.array(Image.fromarray(native).resize((W, H), Image.LANCZOS)), off, s
+
+
+def _fill_edge(ext, win, outer_is_max):
+    """1-D closing on the edge profile: raises dips (for a max edge) / lowers bumps (min edge)."""
+    v = ext.astype(np.float32)
+    if not outer_is_max:
+        v = -v
+    closed = ndimage.grey_closing(v, size=win, mode="nearest")
+    closed = ndimage.gaussian_filter1d(closed, 1.5, mode="nearest")
+    closed = np.maximum(closed, v)
+    closed = np.floor(closed + 0.3)
+    return closed if outer_is_max else -closed
+
+
+def fix_ankles(doc, avatar, photo):
+    a = np.array(avatar.convert("RGBA"))
+    H, W = a.shape[:2]
+    alpha = a[..., 3].astype(np.float32) / 255.0
+    mask = alpha > 0.5
+    src, off, s = _source_at_canvas_scale(doc, photo, (W, H))
+    lm = doc["rig"]["landmarks"]
+    split = int(round((lm["left_knee"][0] + lm["right_knee"][0]) / 2))
+    fill = np.zeros_like(mask)
+    for side in ("left", "right"):
+        ky, ay = lm[f"{side}_knee"][1], lm[f"{side}_ankle"][1]
+        y0 = int((ky + ay) / 2)
+        x0, x1 = (split, W) if lm[f"{side}_knee"][0] > split else (0, split)
+        sub = mask[y0:, x0:x1]
+        rows = np.nonzero(sub.any(1))[0]
+        if len(rows) < 5:
+            continue
+        r0, r1 = rows[0], rows[-1] + 1
+        L = np.array([np.nonzero(sub[r])[0].min() for r in range(r0, r1)])
+        R = np.array([np.nonzero(sub[r])[0].max() for r in range(r0, r1)])
+        win = max(9, int(0.2 * (ay - ky)) | 1)
+        nL = _fill_edge(L, win, False).astype(int)
+        nR = _fill_edge(R, win, True).astype(int)
+        # Stop at the shoe's widest row per edge: below it the sole/toe rounds off on purpose.
+        a_i = max(0, int(ay) - y0 - r0)
+        stopR = a_i + int(np.argmax(R[a_i:])) if a_i < len(R) else len(R) - 1
+        stopL = a_i + int(np.argmin(L[a_i:])) if a_i < len(L) else len(L) - 1
+        for i, r in enumerate(range(r0, r1)):
+            row = fill[y0 + r, x0:x1]
+            if i <= stopL:
+                row[nL[i]:L[i]] = True
+            if i <= stopR:
+                row[R[i] + 1:nR[i] + 1] = True
+            # interior holes between the edges too
+            seg = ~sub[r, L[i]:R[i] + 1]
+            row[L[i]:R[i] + 1] |= seg
+    fill &= ~mask
+    new_mask = mask | fill
+    # colours: dark source (shoe/strap) where it is dark; else nearest inside colour (the sock and
+    # the wall are the same grey in this photo, so light source pixels are not trusted).
+    rgb = a[..., :3].copy()
+    # nearest-inside colour along the same row (extends the row's own edge colour outward),
+    # 2-D nearest as a fallback for rows with no solid pixel
+    idx = ndimage.distance_transform_edt(~mask, return_distances=False, return_indices=True)
+    near = rgb[idx[0], idx[1]]
+    solid = alpha > 0.9
+    for y in np.nonzero(fill.any(1))[0]:
+        xs_in = np.nonzero(solid[y])[0]
+        if not len(xs_in):
+            continue
+        for x in np.nonzero(ndimage.binary_dilation(fill, iterations=2)[y])[0]:
+            j = xs_in[np.argmin(np.abs(xs_in - x))]
+            k = min(max(j + (2 if j < x else -2) * -1, 0), rgb.shape[1] - 1)  # 2 px inside the edge
+            near[y, x] = rgb[y, k] if solid[y, k] else rgb[y, j]
+    lum = src.astype(np.float32).mean(2)
+    near_lum = near.astype(np.float32).mean(2)
+    use_src = fill & (lum < 110) & (near_lum < 70)  # dark source only beside dark (shoe) pixels
+    grow = ndimage.binary_dilation(fill, iterations=2)
+    recol = grow & (alpha < 0.95)  # new + partially transparent old edge pixels near the fill
+    rgb[recol] = near[recol]
+    rgb[use_src] = src[use_src]
+    feather = ndimage.gaussian_filter(new_mask.astype(np.float32), 0.7)
+    new_alpha = alpha.copy()
+    zone = ndimage.binary_dilation(fill, iterations=3)
+    new_alpha[zone] = np.maximum(alpha[zone], feather[zone])
+    new_alpha[fill] = np.maximum(new_alpha[fill], 0.6)
+    out = np.dstack([rgb, (new_alpha * 255).round().clip(0, 255).astype(np.uint8)])
+    return Image.fromarray(out, "RGBA"), int(fill.sum()), int(use_src.sum()), off, s
+
+
+def preview_ankles(before, after, rig, short, z=6):
+    full = [_on_magenta(before), _on_magenta(after)]
+    lm = rig["landmarks"]
+    y0 = int(min(lm["left_knee"][1], lm["right_knee"][1]) * 0.35 + min(lm["left_ankle"][1], lm["right_ankle"][1]) * 0.65)
+    xs = [lm["left_ankle"][0], lm["right_ankle"][0]]
+    x0, x1 = int(max(0, min(xs) - 45)), int(min(before.width, max(xs) + 45))
+    box = (x0, y0, x1, before.height)
+    zs = ((x1 - x0) * z, (before.height - y0) * z)
+    zb = full[0].crop(box).resize(zs, Image.NEAREST)
+    za = full[1].crop(box).resize(zs, Image.NEAREST)
+    gap = 12
+    top_w = before.width * 2 + gap
+    W = max(top_w, zs[0])
+    Ht = before.height + gap + zs[1] * 2 + gap
+    sheet = Image.new("RGB", (W, Ht), (40, 40, 40))
+    sheet.paste(full[0], (0, 0)); sheet.paste(full[1], (before.width + gap, 0))
+    sheet.paste(zb, (0, before.height + gap)); sheet.paste(za, (0, before.height + gap * 2 + zs[1]))
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    path = PREVIEW_DIR / f"ankle_fix_{short}.png"
+    sheet.save(path)
+    return path
+
+
 def scale_rig(rig, s):
     pt = lambda p: [p[0] * s, p[1] * s]
     return {
@@ -196,6 +321,8 @@ def main():
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--preview", action="store_true")
     g.add_argument("--apply", action="store_true")
+    g.add_argument("--fix-ankles", action="store_true", help="preview the ankle dent fill on the current avatar")
+    g.add_argument("--apply-ankles", action="store_true", help="save the ankle dent fill over the avatar PNG")
     ap.add_argument("--scale", type=int, default=2, choices=(1, 2))
     args = ap.parse_args()
 
@@ -204,6 +331,17 @@ def main():
     doc = col.find_one({"avatar_id": args.avatar})
     if doc is None:
         sys.exit(f"no avatar {args.avatar}")
+    if args.fix_ankles or args.apply_ankles:
+        before = media.load_media(doc["avatar_url"]).convert("RGBA")
+        photo = media.load_media(doc["source_photo_url"])
+        after, n_fill, n_src, off, s = fix_ankles(doc, before, photo)
+        short = args.avatar.split("_", 1)[-1]
+        path = preview_ankles(before, after, doc["rig"], short)
+        print(f"ankles: filled {n_fill} px ({n_src} from source), offset {off}, scale {s}; preview {path}")
+        if args.apply_ankles:
+            media.save_png(after, "avatars", Path(doc["avatar_url"]).name)
+            print(f"applied: {doc['avatar_url']} (size {after.size}, doc unchanged)")
+        return
     if doc["canvas_w"] * args.scale > 600:
         sys.exit("avatar already looks upscaled; refusing to scale again")
     before = media.load_media(doc["avatar_url"]).convert("RGBA")
