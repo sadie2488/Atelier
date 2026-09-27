@@ -69,6 +69,18 @@ class FakeDB(dict):
 
 
 @pytest.fixture(autouse=True)
+def isolated_media_dir(monkeypatch, tmp_path_factory):
+    """Every test gets its own media directory: tests never read, write, or delete real media."""
+    from backend import config
+
+    media = tmp_path_factory.mktemp("media")
+    monkeypatch.setattr(config, "MEDIA_DIR", media)
+    monkeypatch.setattr(config, "TEMP_DIR", media / "_tmp")
+    monkeypatch.setattr(config, "FAILURE_LOG", media / "_failures" / "rejections.jsonl")
+    return media
+
+
+@pytest.fixture(autouse=True)
 def memory_media(monkeypatch):
     """Durable media goes to a dict instead of GridFS: tests never touch MongoDB."""
     from backend import media_store
