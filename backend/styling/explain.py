@@ -133,7 +133,16 @@ def explain(strategy: Strategy, top: dict, bottom: dict, jacket: dict | None) ->
         return fallback_explanation(strategy, top, bottom, jacket)
 
 
-def explain_many(requests: list[tuple[Strategy, dict, dict, dict | None]]) -> list[str]:
+def _with_lead(lead: str | None, text: str) -> str:
+    """Style preset lead on a deterministic explanation: "A smart business look: an easy ..."."""
+    if not lead or not text:
+        return text
+    return f"{lead}: {text[0].lower()}{text[1:]}"
+
+
+def explain_many(
+    requests: list[tuple[Strategy, dict, dict, dict | None]], lead: str | None = None
+) -> list[str]:
     """Best-effort Gemini explanations for a whole batch of outfits (S-E4): every request is
     dispatched concurrently and the batch waits on a single shared deadline
     (`weights.EXPLAIN_BUDGET_SECONDS`), so total latency does not grow with the outfit count.
@@ -148,13 +157,13 @@ def explain_many(requests: list[tuple[Strategy, dict, dict, dict | None]]) -> li
     pending: dict[Future, int] = {}
 
     def _fb(i: int) -> str:
-        return fallback_explanation(*requests[i])
+        return _with_lead(lead, fallback_explanation(*requests[i]))
 
     for i, (strategy, top, bottom, jacket) in enumerate(requests):
         # A family-only sandwich stays deterministic: Gemini told "sandwich" tends to claim a
         # shared color that isn't there.
         if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket):
-            results[i] = guided_fallback(*requests[i])
+            results[i] = _with_lead(lead, guided_fallback(*requests[i]))
             continue
 
         key = _cache_key(strategy, top, bottom, jacket)

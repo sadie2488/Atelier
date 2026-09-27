@@ -13,6 +13,7 @@ from contract.schemas import Item, Outfit, OutfitsGenerateRequest, OutfitsGenera
 
 from backend.styling import planned as planned_mod
 from backend.styling import select as select_mod
+from backend.styling import styles as styles_mod
 from backend.styling import weights as W
 from backend.styling.explain import explain_many
 from backend.styling.strategies import generate_candidates
@@ -99,6 +100,20 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
     # fully in the closet, it leads the response; the scorer's picks follow. Unset -> the
     # original path below, unchanged.
     first = None
+    if req.style is not None:
+        # Style preset (2.5.0): no planned rotation; neutral tonal pairs join the pool, then the
+        # pool is narrowed by style (relaxing gradually) before the usual variety pick.
+        seen = {(c["top_id"], c["bottom_id"], c["jacket_id"]) for c in candidates}
+        candidates += [
+            c for c in styles_mod.tonal_extras(tops, bottoms, jackets)
+            if (c["top_id"], c["bottom_id"], c["jacket_id"]) not in seen
+        ]
+        chosen = styles_mod.styled_pick(
+            req.style, candidates, limit,
+            lambda pool, n: select_mod.select_outfits(pool, n, rng=_rng, previous_ids=_last_outfit_ids),
+        )
+        return _respond(chosen, lead=styles_mod.STYLE_LEAD[req.style])
+
     try:
         plan = planned_mod.planned_outfits()
         if plan:
@@ -113,6 +128,23 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
         )
     else:
         chosen = _after_planned(first, candidates, limit)
+    outfits = _build(chosen)
+
+    if first is None:
+        return OutfitsGenerateResponse(outfits=outfits)
+    try:
+        return OutfitsGenerateResponse(outfits=outfits)
+    except Exception:
+        # Safety net for the planned path only: never 500 the demo -- the planned outfit alone
+        # is always a valid response.
+        return OutfitsGenerateResponse(outfits=outfits[:1])
+
+
+def _respond(chosen: list[dict], lead: str | None = None) -> OutfitsGenerateResponse:
+    return OutfitsGenerateResponse(outfits=_build(chosen, lead=lead))
+
+
+def _build(chosen: list[dict], lead: str | None = None) -> list[Outfit]:
     _last_outfit_ids.clear()
     _last_outfit_ids.update(
         select_mod.make_outfit_id(c["top_id"], c["bottom_id"], c["jacket_id"]) for c in chosen
@@ -121,7 +153,7 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
     # One shared-deadline batch call (S-E4), not one blocking call per outfit: a slow/hanging
     # Gemini must not multiply the response latency by the number of outfits.
     explanations = explain_many(
-        [(c["strategy"], c["top"], c["bottom"], c["jacket"]) for c in chosen]
+        [(c["strategy"], c["top"], c["bottom"], c["jacket"]) for c in chosen], lead=lead
     )
 
     outfits = [
@@ -136,12 +168,4 @@ def generate(body: OutfitsGenerateRequest | None = None, db=Depends(get_db)):
         )
         for c, explanation in zip(chosen, explanations)
     ]
-
-    if first is None:
-        return OutfitsGenerateResponse(outfits=outfits)
-    try:
-        return OutfitsGenerateResponse(outfits=outfits)
-    except Exception:
-        # Safety net for the planned path only: never 500 the demo -- the planned outfit alone
-        # is always a valid response.
-        return OutfitsGenerateResponse(outfits=outfits[:1])
+    return outfits

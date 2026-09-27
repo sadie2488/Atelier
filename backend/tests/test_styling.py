@@ -814,3 +814,142 @@ def test_planned_malformed_env_does_not_crash(monkeypatch, client, fake_db, fixt
     planned_mod.reset_rotation()
     fake_db["items"] = _FakeCollection(fixture_items)
     assert len(_first(client)) > 0
+
+
+# ------------------------------------------------------------------ 2.5.0: style presets
+
+from backend.styling import styles as styles_mod  # noqa: E402
+
+
+def _styled_item(item_id, category, primary, formality=None, subcategory=None, material=None):
+    attrs = {}
+    if formality is not None:
+        attrs["formality"] = formality
+    if subcategory is not None:
+        attrs["subcategory"] = subcategory
+    if material is not None:
+        attrs["material"] = material
+    doc = _item(item_id, primary, attributes=attrs)
+    doc.update({"category": category, "name": item_id})
+    return doc
+
+
+def _style_closet(fixture_items):
+    """Fixture items with attributes swapped in, so every doc is a contract-valid Item."""
+    base = {}
+    for i in fixture_items:
+        prefix = i["id"].split("_")[0]
+        if prefix in ("top", "bottom", "jacket"):
+            base.setdefault(i["category"], i)
+    specs = [
+        ("top_a00001", "tops", CHROMATIC_RED, dict(formality="casual", subcategory="t-shirt")),
+        ("top_a00002", "tops", CHROMATIC_GREEN, dict(formality="Smart", subcategory="button-up shirt")),
+        ("top_a00003", "tops", NEUTRAL_BLACK, dict(subcategory="cami", material="silk satin")),  # no formality
+        ("top_a00004", "tops", BASE_NAVY, dict(formality="weird-word", subcategory="blouse")),
+        ("bottom_b00001", "bottoms", BASE_NAVY, dict(formality="casual", subcategory="jeans")),
+        ("bottom_b00002", "bottoms", NEUTRAL_WHITE, dict(formality="smart", subcategory="trousers")),
+        ("bottom_b00003", "bottoms", CHROMATIC_RED, dict(formality="dressy", subcategory="skirt")),
+        ("bottom_b00004", "bottoms", _color(40, 50, 32, family="red", name="red"), dict(subcategory="shorts")),
+        ("jacket_c00001", "jackets", NEUTRAL_BLACK, dict(formality="casual", subcategory="moto jacket", material="leather")),
+        ("jacket_c00002", "jackets", NEUTRAL_BLACK, dict(formality="smart", subcategory="blazer")),
+    ]
+    docs = []
+    for item_id, cat, color, attrs in specs:
+        d = copy.deepcopy(base[cat])
+        d["id"] = item_id
+        d["primary_color"] = {**d["primary_color"], **{k: (list(v) if isinstance(v, tuple) else v) for k, v in color.items()}}
+        d["secondary_color"] = None
+        d["attributes"] = attrs
+        docs.append(d)
+    return docs
+
+
+@pytest.fixture
+def no_gemini(monkeypatch):
+    from backend import config
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "", raising=False)
+
+
+def _styled(client, style, limit=5):
+    resp = client.post("/api/outfits/generate", json={"style": style, "limit": limit})
+    assert resp.status_code == 200, resp.text
+    return OutfitsGenerateResponse.model_validate(resp.json()).outfits
+
+
+def _by_id(docs):
+    return {d["id"]: d for d in docs}
+
+
+@pytest.mark.parametrize("style", ["casual", "business", "going_out"])
+def test_style_outfits_made_of_matching_items(client, fake_db, fixture_items, no_gemini, style):
+    from contract.enums import OutfitStyle
+    docs = _style_closet(fixture_items)
+    fake_db["items"] = _FakeCollection(docs)
+    items = _by_id(docs)
+    for _ in range(5):
+        outfits = _styled(client, style)
+        assert outfits
+        for o in outfits:
+            pieces = [o.top_id, o.bottom_id] + ([o.jacket_id] if o.jacket_id else [])
+            for pid in pieces:
+                assert styles_mod.item_matches(OutfitStyle(style), items[pid]), (style, pid)
+            assert o.explanation.startswith(styles_mod.STYLE_LEAD[OutfitStyle(style)])
+
+
+def test_style_business_never_tshirt_and_unknown_formality_does_not_match(client, fake_db, fixture_items, no_gemini):
+    docs = _style_closet(fixture_items)
+    fake_db["items"] = _FakeCollection(docs)
+    for _ in range(5):
+        for o in _styled(client, "business"):
+            assert o.top_id not in ("top_a00001", "top_a00004")
+
+
+def test_style_keyword_fallback_when_formality_missing(fixture_items):
+    from contract.enums import OutfitStyle
+    items = _by_id(_style_closet(fixture_items))
+    assert styles_mod.formality(items["top_a00003"]) == "dressy"
+    assert styles_mod.formality(items["bottom_b00004"]) is None  # plain "shorts": no keyword
+    assert styles_mod.item_matches(OutfitStyle.going_out, items["jacket_c00001"])  # leather
+    assert not styles_mod.item_matches(OutfitStyle.business, items["top_a00004"])  # unknown word
+
+
+def test_style_monochrome_same_family(client, fake_db, fixture_items, no_gemini):
+    docs = _style_closet(fixture_items)
+    fake_db["items"] = _FakeCollection(docs)
+    items = _by_id(docs)
+
+    def key(i):
+        c = items[i]["primary_color"]
+        return "neutral" if c["is_neutral"] else c["family"]
+
+    for _ in range(5):
+        outfits = _styled(client, "monochrome")
+        assert outfits
+        for o in outfits:
+            keys = {key(o.top_id), key(o.bottom_id)} | ({key(o.jacket_id)} if o.jacket_id else set())
+            assert len(keys) == 1, keys
+
+
+def test_style_with_no_matches_relaxes(client, fake_db, fixture_items, no_gemini):
+    docs = _style_closet(fixture_items)
+    for d in docs:
+        d["attributes"] = {"formality": "casual"}
+    fake_db["items"] = _FakeCollection(docs)
+    outfits = _styled(client, "going_out")
+    assert outfits  # nothing is dressy, still returns outfits
+
+
+def test_style_invalid_value_is_422(client, fake_db, fixture_items):
+    fake_db["items"] = _FakeCollection(fixture_items)
+    resp = client.post("/api/outfits/generate", json={"style": "pajamas"})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "invalid_request"
+
+
+def test_style_skips_planned_rotation(monkeypatch, client, fake_db, fixture_items, no_gemini):
+    monkeypatch.setenv("ATELIER_DEMO_OUTFITS", "top_a00001,bottom_b00002")
+    planned_mod.reset_rotation()
+    fake_db["items"] = _FakeCollection(_style_closet(fixture_items))
+    for _ in range(3):
+        for o in _styled(client, "business"):
+            assert o.top_id != "top_a00001"
