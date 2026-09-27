@@ -183,14 +183,14 @@ export default function ClosetPage() {
           <div className="render-panel" role="dialog" aria-modal="true" aria-label="Your outfit" onClick={(event) => event.stopPropagation()}>
             <Button variant="close" aria-label="Close" className="detail-close" onClick={closeRender}><X size={20} strokeWidth={1.5} /></Button>
             {(() => {
-              const shown = view?.generated ?? view?.local ?? (loading ? avatar.wireframe_url : avatar.avatar_url);
+              const shown = view?.generated ?? avatar.avatar_url; // only the Nano Banana image or the plain avatar, never the coordinate-placed preview
               return (
                 <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}`}>
                   <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
                 </div>
               );
             })()}
-            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : " "}</p>
+            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : view && !view.generated ? "couldn’t style this one — press see it on me to try again" : " "}</p>
           </div>
         </div>
       )}

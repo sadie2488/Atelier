@@ -1295,6 +1295,8 @@ def _load_model_photo(name: str) -> tuple[np.ndarray, dict]:
     from PIL import ImageOps
     from backend.avatar.landmarks import detect_landmarks as _detect_landmarks
     path = MODEL_PHOTOS_DIR / f"model.{name}.jpeg"
+    if not path.is_file():  # personal photos are git-ignored; a clean checkout skips, like line 210
+        pytest.skip(f"{path.name} not present")
     img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
     img = service._downscale(img)
     rgb = np.asarray(img)

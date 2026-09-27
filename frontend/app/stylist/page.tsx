@@ -76,7 +76,7 @@ export default function StylistPage() {
     finally { setBusy(false); }
   };
 
-  const shown = view?.generated ?? view?.local ?? (loading ? avatar.wireframe_url : avatar.avatar_url);
+  const shown = view?.generated ?? avatar.avatar_url; // only the Nano Banana image or the plain avatar, never the coordinate-placed preview
 
   return (
     <main className="stylist-page" aria-label="Stylist">
@@ -97,9 +97,10 @@ export default function StylistPage() {
       </div>
 
       <div className="stylist-avatar">
-        <div className={`stylist-avatar-box${view?.pending ? " render-frame--pending" : ""}`}>
+        <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}`}>
           <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
         </div>
+        <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : view && !view.generated ? "couldn’t style this one — generate again" : " "}</p>
         {explanation && <p className="stylist-explain">{explanation}</p>}
         {why && <p className="stylist-why">why this works: {strategyLabel(why.strategy)} &middot; {Math.round(why.score * 100)}%</p>}
       </div>
