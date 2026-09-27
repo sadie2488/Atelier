@@ -202,11 +202,11 @@ export default function StylistPage() {
       <div className="stylist-avatar">
         <div className={`stylist-avatar-box${busy ? " render-frame--pending" : ""}${view?.generated ? " render-frame--generated" : ""}`}>
           <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
-          {/* Curtain only while a non-cached render is being generated (the bar shows exactly then). */}
-          <Curtain up={busy && !!bar}><p className="curtain-text">styling your look…</p></Curtain>
+          {/* Curtain drops the moment generate or Try On! is pressed and lifts when the look is ready. */}
+          <Curtain up={busy}><p className="curtain-text">styling your look…</p></Curtain>
           <RenderProgress bar={bar} />
         </div>
-        <p className="render-status" aria-live="polite">{busy && !bar ? "styling your look…" : savedFlash ? "Saved" : " "}</p>
+        <p className="render-status" aria-live="polite">{savedFlash ? "Saved" : " "}</p>
         {explanation && <p className="stylist-explain">{explanation}</p>}
         {why && <p className="stylist-why">why this works: {strategyLabel(why.strategy)} &middot; {Math.round(why.score * 100)}%</p>}
       </div>
