@@ -8,6 +8,7 @@ import { Carousel, type Study } from "@/components/closet/Carousel";
 import { Loader, StatePanel } from "@/components/StatePanel";
 import { ApiError, CATEGORIES, renameItem, type Category, type ExtractedColor, type Item } from "@/lib/api";
 import { useIsMobile, useItems, useStoredAvatar } from "@/lib/hooks";
+import { clearStylistDefault, getStylistDefaults, setStylistDefault } from "@/lib/stylistDefaults";
 
 type ClosetStudy = Study & { items: Item[]; type: Category };
 type Slot = "top" | "bottom" | "jacket";
@@ -55,6 +56,34 @@ const Check = () => (
   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
 );
 
+const PlusIcon = () => (
+  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+);
+
+// Plus beside the pencil: makes this garment the stylist's default (shown first) for its category. One per category.
+function DefaultToggle({ item }: { item: Item }) {
+  const [isDefault, setIsDefault] = useState(() => getStylistDefaults()[item.category] === item.id);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (!flash) return;
+    const t = window.setTimeout(() => setFlash(false), 1600);
+    return () => window.clearTimeout(t);
+  }, [flash]);
+  const toggle = () => {
+    if (isDefault) { clearStylistDefault(item.category); setIsDefault(false); setFlash(false); }
+    else { setStylistDefault(item.category, item.id); setIsDefault(true); setFlash(true); }
+  };
+  const label = isDefault ? "Default in stylist (press to remove)" : "Set as stylist default";
+  return (
+    <>
+      <button type="button" className={`rename-btn default-btn${isDefault ? " is-default" : ""}`} aria-pressed={isDefault} aria-label={label} title={label} onClick={toggle}>
+        {isDefault ? <Check /> : <PlusIcon />}
+      </button>
+      {flash && <span className="default-flash" role="status">Shown first in the stylist</span>}
+    </>
+  );
+}
+
 // Inline rename: pencil on the left of the name; Enter/check saves, Esc/X cancels. The item id never changes.
 function DetailName({ item, onRenamed }: { item: Item; onRenamed: (updated: Item) => void }) {
   const current = item.retailer_item_name ?? "";
@@ -79,6 +108,7 @@ function DetailName({ item, onRenamed }: { item: Item; onRenamed: (updated: Item
     return (
       <div className="detail-name">
         <button type="button" className="rename-btn" aria-label="Rename" onClick={start}><Pencil /></button>
+        <DefaultToggle key={item.id} item={item} />
         <h2>{item.retailer_item_name ?? "Untitled piece"}</h2>
       </div>
     );

@@ -476,3 +476,10 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .rename-form { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rename-input { flex: 1; min-width: 0; font: italic 400 22px/1.2 var(--font-display); color: var(--foreground); background: transparent; border: 0; border-bottom: 1px solid var(--foreground); padding: 2px 0; outline: none; }
 .rename-error { margin: 0; font: 500 13px var(--font-sans); color: var(--muted-foreground); }
+
+/* ---- closet: stylist default toggle (plus beside the rename pencil) ---- */
+.default-btn.is-default { color: var(--background); background: var(--foreground); }
+.default-btn.is-default:hover, .default-btn.is-default:focus-visible { color: var(--background); background: color-mix(in oklab, var(--foreground) 80%, transparent); }
+.default-flash { order: 10; flex: 1 0 100%; font: 500 12px var(--font-sans); color: var(--muted-foreground); }
+.detail-name:has(.default-flash) { flex-wrap: wrap; }
+.detail-name:has(.default-flash) h2 { flex: 1; }

@@ -11,18 +11,13 @@ import { useRender } from "@/lib/useRender";
 import { Curtain } from "@/components/Curtain";
 import { SavedOutfitsPanel } from "@/components/SavedOutfitsPanel";
 import { useSavedOutfits, type SavedOutfit } from "@/lib/savedOutfits";
+import { getStylistDefaults } from "@/lib/stylistDefaults";
 
 type Lists = Record<Category, Item[]>;
 
 const toFront = (list: Item[], id: string | null | undefined) => {
   const hit = id ? list.find((g) => g.id === id) : undefined;
   return hit ? [hit, ...list.filter((g) => g.id !== hit.id)] : list;
-};
-
-// The closet's outfit tray (sessionStorage), carried one way into the stylist on load.
-type Tray = Partial<Record<"top" | "bottom" | "jacket", string>>;
-const readTray = (): Tray => {
-  try { const v = sessionStorage.getItem("atelier:outfit-tray"); return v ? (JSON.parse(v) as Tray) : {}; } catch { return {}; }
 };
 
 // Plain-words label for a strategy code, e.g. "neutral_anchor" -> "neutral anchor".
@@ -38,7 +33,7 @@ export default function StylistPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<"none" | "failed" | "render" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
-  const trayApplied = useRef(false);
+  const defaultsApplied = useRef(false);
   const saved = useSavedOutfits();
   const [savedOpen, setSavedOpen] = useState(false);
   const [savedFlash, setSavedFlash] = useState(0); // >0 while the "Saved" confirmation shows
@@ -59,13 +54,14 @@ export default function StylistPage() {
     if (!itemsQ.items) return;
     const g = itemsQ.items;
     const base: Lists = { tops: g.filter((x) => x.category === "tops"), bottoms: g.filter((x) => x.category === "bottoms"), jackets: g.filter((x) => x.category === "jackets") };
-    // Put the closet's tray pieces at index 0 whenever the lists are (re)built; no render (renders stay explicit).
-    const tray = readTray();
-    setLists({ tops: toFront(base.tops, tray.top), bottoms: toFront(base.bottoms, tray.bottom), jackets: toFront(base.jackets, tray.jacket) });
-    if (!trayApplied.current && (tray.top || tray.bottom || tray.jacket)) {
-      trayApplied.current = true;
-      setIdx({ tops: 0, bottoms: 0, jackets: 0 });
-      setNoJacket(!(tray.jacket && base.jackets.some((x) => x.id === tray.jacket)));
+    // Put the closet's per-category defaults at index 0 whenever the lists are (re)built; no render (renders stay explicit).
+    const d = getStylistDefaults();
+    const has = (c: Category) => !!d[c] && base[c].some((x) => x.id === d[c]); // ignore ids no longer in the closet
+    setLists({ tops: toFront(base.tops, d.tops), bottoms: toFront(base.bottoms, d.bottoms), jackets: toFront(base.jackets, d.jackets) });
+    if (!defaultsApplied.current) {
+      defaultsApplied.current = true;
+      setIdx((cur) => ({ tops: has("tops") ? 0 : cur.tops, bottoms: has("bottoms") ? 0 : cur.bottoms, jackets: has("jackets") ? 0 : cur.jackets }));
+      if (has("jackets")) setNoJacket(false);
     }
   }, [itemsQ.items]);
 
