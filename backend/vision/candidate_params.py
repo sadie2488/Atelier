@@ -290,6 +290,21 @@ EDGE_CONNECTIVITY_DROP_TOL = 0.05
 # "clothes" to begin with (V-S1 stays intact: skin exclusion is still MediaPipe-category-only).
 EDGE_SAFETY_GROW_PX = 3
 
+# Final stray-fragment cleanup (segmentation._drop_stray_components), run on every candidate
+# mask AFTER edge regularization. Motivated by bottom_dd2bea ("livin it up Stretch Curvy Low-Rise
+# Perfect Shortie #99b3be.png"): two hanger-clip fragments (~1.2-1.4% of the garment each) survived
+# above the waistband, detached from the shorts. Conservative rule: the largest component is always
+# kept, and so is any other component at least STRAY_KEEP_AREA_FRAC of the total mask area
+# (top_8cfe59's stripe bands at 14-27% and jacket_18d0da's open second front panel at 39% are
+# legitimate multi-piece garments, and together with the largest component they define the
+# garment's vertical extent).
+STRAY_KEEP_AREA_FRAC = 0.10
+# A smaller component is still kept when at least this fraction of its own height overlaps that
+# vertical extent (a second leg, a separate sleeve, a strap, dress_49ce0b's 1.3% side-edge sliver);
+# one sitting wholly above the waistband/shoulders or below the hem (dd2bea's clips: 0 overlap)
+# is dropped.
+STRAY_MIN_VERTICAL_OVERLAP_FRAC = 0.5
+
 # Minimum soft-segmentation confidence to count a pixel as belonging to the chosen person
 # (V-S6: largest person by mask area). Unused since pose-landmarker segmentation masks are not
 # requested (see mp_models.pose_landmarker's docstring); kept for when that mediapipe bug is fixed.

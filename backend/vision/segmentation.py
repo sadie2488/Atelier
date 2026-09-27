@@ -84,6 +84,8 @@ from contract.tools.color import delta_e2000
 
 from . import VisionError
 from .candidate_params import (
+    STRAY_KEEP_AREA_FRAC,
+    STRAY_MIN_VERTICAL_OVERLAP_FRAC,
     CANDIDATE_MORPH_RADIUS_PX, CORE_PROBE_BAND, CORE_PROBE_MIN_COVERAGE, ISOLATION_KMEANS_K,
     ISOLATION_MIN_PIXELS, ISOLATION_SAMPLE_PIXELS, MIN_BOTTOM_REGION_CLOTHES_COVERAGE_FRAC,
     PATTERN_BOUNDARY_CONTACT_MIN, PATTERN_CLOSING_RADIUS_PX, PATTERN_MAX_COMPONENT_FRAC,
@@ -322,6 +324,33 @@ def _drop_tiny_components(mask: np.ndarray, min_px: int) -> np.ndarray:
     keep = np.zeros(n + 1, dtype=bool)
     keep[1:] = counts[1:] >= min_px
     return keep[labeled]
+
+
+def _drop_stray_components(mask: np.ndarray) -> np.ndarray:
+    """Final cleanup after edge regularization: drops small components detached from the
+    garment's vertical extent (hanger clips above a waistband, bits below a hem). See
+    STRAY_KEEP_AREA_FRAC / STRAY_MIN_VERTICAL_OVERLAP_FRAC in candidate_params."""
+    labeled, n = ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))
+    if n <= 1:
+        return mask
+    counts = np.bincount(labeled.ravel())
+    counts[0] = 0
+    total = counts.sum()
+    largest = int(np.argmax(counts))
+    objs = ndimage.find_objects(labeled)
+    keep = np.zeros(n + 1, dtype=bool)
+    keep[largest] = True
+    keep[1:] |= counts[1:] >= STRAY_KEEP_AREA_FRAC * total
+    ref_ids = np.flatnonzero(keep)
+    y0 = min(objs[i - 1][0].start for i in ref_ids)
+    y1 = max(objs[i - 1][0].stop for i in ref_ids)
+    for i in range(1, n + 1):
+        if keep[i] or counts[i] == 0:
+            continue
+        sy = objs[i - 1][0]
+        overlap = max(0, min(sy.stop, y1) - max(sy.start, y0))
+        keep[i] = overlap >= STRAY_MIN_VERTICAL_OVERLAP_FRAC * (sy.stop - sy.start)
+    return keep[labeled] & mask
 
 
 def _pattern_fragments(dropped_mask: np.ndarray, kept_mask: np.ndarray, anchor_area: int) -> np.ndarray:
@@ -590,6 +619,7 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
             # `_fill_small_holes`).
             from .edge_regularize import regularize_bottom_edges
             m = regularize_bottom_edges(m, garment_type, clothes)
+        m = _drop_stray_components(m)
         variants[name] = m
 
     # V-S2: independent extent for the completeness check -- pose region intersected with the
