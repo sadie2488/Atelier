@@ -250,7 +250,8 @@ before capture. Face photos and garment images are stored in the project's Mongo
 
 ## Team
 
-> **TODO:** names and roles.
+- Lalitha Kantam
+- Sarah Spellman
 
 <div align="center">
 <br>
