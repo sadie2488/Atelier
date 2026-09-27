@@ -58,7 +58,7 @@ class _ThreadLog(logging.Handler):
     def __init__(self):
         super().__init__(level=logging.INFO)
         self.lines: dict[int, list[str]] = {}
-        self.lock = threading.Lock()
+        self._mu = threading.Lock()
 
     def emit(self, record):
         try:
@@ -67,11 +67,11 @@ class _ThreadLog(logging.Handler):
                 msg += f" [{type(record.exc_info[1]).__name__}: {record.exc_info[1]}]"
         except Exception:
             return
-        with self.lock:
+        with self._mu:
             self.lines.setdefault(record.thread, []).append(msg)
 
     def take(self) -> list[str]:
-        with self.lock:
+        with self._mu:
             return self.lines.pop(threading.get_ident(), [])
 
 
@@ -214,7 +214,7 @@ def contact_sheet(rows, by_id, out_path: Path):
         if not ok:
             d.rectangle([x + 4, y + 4, x + TILE_W - 4, y + IMG_H - 4], fill=(170, 170, 170))
             msg = f"{r['status'].upper()}\n\n" + "\n".join(textwrap.wrap(r["reason"] or "(no reason logged)", 34))
-            d.multiline_text((x + 14, y + 20), msg, fill="black", font=f_small)
+            d.multiline_text((x + 14, y + 32), msg, fill="black", font=f_small)
         d.text((x + 8, y + 6), f"#{i + 1}", fill=(200, 0, 0), font=f_big)
         lab = [f"T: {_label(by_id.get(r['top_id']))}", f"B: {_label(by_id.get(r['bottom_id']))}",
                f"J: {_label(by_id.get(r['jacket_id'])) if r['jacket_id'] else '-'}",
