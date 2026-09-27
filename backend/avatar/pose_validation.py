@@ -7,7 +7,9 @@ from typing import Optional
 from contract.enums import ErrorCode
 
 VISIBILITY_MIN = 0.5
-ARM_ANGLE_MIN_DEG = 25.0
+# Human decision 2026-09-26: 25° rejected natural relaxed stances (real scans measured 15-23°);
+# 12° still rejects arms pressed flat against the torso.
+ARM_ANGLE_MIN_DEG = 12.0
 
 _BODY_REQUIRED = [
     "nose", "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",

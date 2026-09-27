@@ -102,6 +102,24 @@ def test_pose_rejects_arms_close_to_body_with_actionable_reason():
     assert result[0].value == "pose_rejected"
 
 
+def test_pose_rejects_arm_angle_just_below_new_threshold():
+    # ARM_ANGLE_MIN_DEG is 12.0 (human decision 2026-09-26). left_elbow placed so the
+    # hip-shoulder-elbow angle is exactly 10 degrees -- just under the threshold.
+    lm = _good_landmarks()
+    lm["left_elbow"] = (259.45614434184796, 249.55190271504677, 0.99)
+    result = validate(lm)
+    assert result == (result[0], ARMS_MESSAGE)
+    assert result[0].value == "pose_rejected"
+
+
+def test_pose_accepts_arm_angle_just_above_new_threshold():
+    # Same construction as above, but the angle is 14 degrees -- just over the threshold --
+    # which real relaxed-stance scans (15-23 degrees) must clear.
+    lm = _good_landmarks()
+    lm["left_elbow"] = (266.37749933741526, 248.6497719989913, 0.99)
+    assert validate(lm) is None
+
+
 @pytest.mark.parametrize("image_name", [
     # The closest fixture to "full body, front-facing" available (see lane report: none of
     # fixtures/images/ actually spans shoulders-to-ankles -- these are garment product photos).
