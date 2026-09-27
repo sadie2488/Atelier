@@ -84,6 +84,9 @@ from contract.tools.color import delta_e2000
 
 from . import VisionError
 from .candidate_params import (
+    STRAY_KEEP_AREA_FRAC,
+    STRAY_MIN_VERTICAL_OVERLAP_FRAC,
+    STRAY_COLOR_BOTTOM_FRAC, STRAY_COLOR_DOMINANT_K, STRAY_COLOR_MIN_DELTA_E,
     CANDIDATE_MORPH_RADIUS_PX, CORE_PROBE_BAND, CORE_PROBE_MIN_COVERAGE, ISOLATION_KMEANS_K,
     ISOLATION_MIN_PIXELS, ISOLATION_SAMPLE_PIXELS, MIN_BOTTOM_REGION_CLOTHES_COVERAGE_FRAC,
     PATTERN_BOUNDARY_CONTACT_MIN, PATTERN_CLOSING_RADIUS_PX, PATTERN_MAX_COMPONENT_FRAC,
@@ -322,6 +325,65 @@ def _drop_tiny_components(mask: np.ndarray, min_px: int) -> np.ndarray:
     keep = np.zeros(n + 1, dtype=bool)
     keep[1:] = counts[1:] >= min_px
     return keep[labeled]
+
+
+def _drop_stray_components(mask: np.ndarray, rgb: np.ndarray | None = None) -> np.ndarray:
+    """Final cleanup after edge regularization: drops small components detached from the
+    garment's vertical extent (hanger clips above a waistband, bits below a hem). See
+    STRAY_KEEP_AREA_FRAC / STRAY_MIN_VERTICAL_OVERLAP_FRAC in candidate_params. With `rgb`, also
+    drops small foreign-colored pieces (STRAY_COLOR_*)."""
+    labeled, n = ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))
+    if n <= 1:
+        return mask
+    counts = np.bincount(labeled.ravel())
+    counts[0] = 0
+    total = counts.sum()
+    largest = int(np.argmax(counts))
+    objs = ndimage.find_objects(labeled)
+    keep = np.zeros(n + 1, dtype=bool)
+    keep[largest] = True
+    keep[1:] |= counts[1:] >= STRAY_KEEP_AREA_FRAC * total
+    ref_ids = np.flatnonzero(keep)
+    y0 = min(objs[i - 1][0].start for i in ref_ids)
+    y1 = max(objs[i - 1][0].stop for i in ref_ids)
+    for i in range(1, n + 1):
+        if keep[i] or counts[i] == 0:
+            continue
+        sy = objs[i - 1][0]
+        overlap = max(0, min(sy.stop, y1) - max(sy.start, y0))
+        keep[i] = overlap >= STRAY_MIN_VERTICAL_OVERLAP_FRAC * (sy.stop - sy.start)
+    if rgb is not None:
+        _drop_foreign_color_pieces(labeled, counts, objs, ref_ids, keep, y0, y1, rgb)
+    return keep[labeled] & mask
+
+
+def _drop_foreign_color_pieces(labeled, counts, objs, ref_ids, keep, y0, y1, rgb) -> None:
+    """Color rule of the stray step (see STRAY_COLOR_* in candidate_params): un-keeps small
+    pieces whose median Lab is far from every dominant color of the large pieces and that sit in
+    the garment's bottom region or touch the frame edge. Mutates `keep` in place."""
+    h, w = labeled.shape
+    small = [i for i in range(1, len(keep)) if keep[i] and i not in ref_ids and counts[i] > 0]
+    if not small:
+        return
+    bottom_y = y0 + (1.0 - STRAY_COLOR_BOTTOM_FRAC) * (y1 - y0)
+    candidates = []
+    for i in small:
+        sy, sx = objs[i - 1]
+        at_edge = sy.start == 0 or sx.start == 0 or sy.stop == h or sx.stop == w
+        if sy.stop > bottom_y or at_edge:
+            candidates.append(i)
+    if not candidates:
+        return
+    big_px = rgb[np.isin(labeled, ref_ids)]
+    big_px = big_px[:: max(1, len(big_px) // ISOLATION_SAMPLE_PIXELS)]
+    big_lab = rgb2lab(big_px.reshape(-1, 1, 3)).reshape(-1, 3)
+    k = min(STRAY_COLOR_DOMINANT_K, len(big_lab))
+    centers = KMeans(n_clusters=k, n_init=4, random_state=0).fit(big_lab).cluster_centers_
+    for i in candidates:
+        px = rgb[labeled == i]
+        med = np.median(rgb2lab(px.reshape(-1, 1, 3)).reshape(-1, 3), axis=0)
+        if min(delta_e2000(tuple(med), tuple(c)) for c in centers) > STRAY_COLOR_MIN_DELTA_E:
+            keep[i] = False
 
 
 def _pattern_fragments(dropped_mask: np.ndarray, kept_mask: np.ndarray, anchor_area: int) -> np.ndarray:
@@ -583,6 +645,14 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
         while not m.any() and r < 0:
             r += 1
             m = _morph(base, r)
+        if is_bottom:
+            # V3 edge quality (re-dispatch, human request): straighten/de-fray the waistband and
+            # hem(s) of this candidate's final mask -- see edge_regularize.py. Import kept local
+            # to avoid a module-level circular import (edge_regularize imports this module's
+            # `_fill_small_holes`).
+            from .edge_regularize import regularize_bottom_edges
+            m = regularize_bottom_edges(m, garment_type, clothes)
+        m = _drop_stray_components(m, rgb)
         variants[name] = m
 
     # V-S2: independent extent for the completeness check -- pose region intersected with the

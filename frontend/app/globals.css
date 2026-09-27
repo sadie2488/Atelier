@@ -62,7 +62,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .preview-bottom .gallery-button { width: 26px; height: 26px; border: 1px solid var(--muted-foreground); border-radius: 50%; display: grid; place-items: center; transition: background .2s, color .2s; }
 .preview-bottom .gallery-button:hover { background: var(--primary); color: var(--primary-foreground); }
 .gallery-button--text { color: var(--foreground); font: 9px var(--font-mono); letter-spacing: .08em; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.preview-backdrop { position: fixed; z-index: 20; inset: 0; background: oklch(0.95 0.02 80 / 78%); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: grid; place-items: center; padding: 18px; }
+.preview-backdrop { position: fixed; z-index: 45; inset: 0; background: oklch(0.95 0.02 80 / 78%); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: grid; place-items: center; padding: 18px; }
 .preview-dialog { width: min(600px, 100%); height: min(94vh, 900px); display: flex; flex-direction: column; }
 .preview-bar, .preview-bottom { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 12px 2px; font: 600 13px var(--font-mono); letter-spacing: .08em; }
 .gallery-button--close { display: grid; place-items: center; }
@@ -126,7 +126,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .hanger-trigger:hover, .hanger-trigger:focus-visible { background: none; }
 .hanger-trigger svg { width: 43px; height: 40px; transition: transform .28s cubic-bezier(.2,.8,.2,1); transform-origin: center; }
 .hanger-trigger:hover svg, .hanger-trigger:focus-visible svg { transform: scale(1.22); }
-.hanger-dropdown { position: absolute; top: calc(100% + 6px); left: 0; min-width: 165px; padding: 10px 0; display: flex; flex-direction: column; background: color-mix(in oklab, var(--background) 30%, transparent); backdrop-filter: blur(10px) saturate(140%); border: 1px solid color-mix(in oklab, var(--border) 60%, transparent); box-shadow: 0 14px 32px -20px var(--foreground); animation: menu-appear .2s ease-out; }
+.hanger-dropdown { position: absolute; top: calc(100% + 6px); left: 0; min-width: 190px; padding: 10px 0; display: flex; flex-direction: column; background: color-mix(in oklab, var(--background) 30%, transparent); backdrop-filter: blur(10px) saturate(140%); border: 1px solid color-mix(in oklab, var(--border) 60%, transparent); box-shadow: 0 14px 32px -20px var(--foreground); animation: menu-appear .2s ease-out; }
 .hanger-link { display: block; padding: 10px 19px; color: var(--foreground); font: 500 16px/1.4 var(--font-sans); text-decoration: none; transition: background .2s, color .2s; }
 .hanger-link:hover, .hanger-link:focus-visible { background: var(--muted); color: var(--primary); }
 .hanger-link--current { font-weight: 700; }
@@ -362,3 +362,57 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
   .insights-page { width: 100%; gap: 22px; }
   .insights-bar-row { grid-template-columns: 70px 1fr 34px; }
 }
+
+/* closet outfit tray + render view */
+.outfit-tray { position: fixed; z-index: 40; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 10px; max-width: calc(100vw - 32px); box-sizing: border-box; background: color-mix(in oklab, var(--background) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.tray-slot { position: relative; width: 56px; height: 68px; flex: none; display: grid; place-items: center; border: 1px dashed var(--border); border-radius: 2px; }
+.tray-slot img { width: 100%; height: 100%; object-fit: contain; padding: 4px; box-sizing: border-box; }
+.tray-empty { font: 600 10px var(--font-sans); letter-spacing: .04em; color: var(--muted-foreground); text-align: center; }
+.tray-clear { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--background); color: var(--foreground); cursor: pointer; }
+.tray-action { display: grid; gap: 4px; justify-items: center; margin-left: 4px; }
+.tray-action .solid-btn { min-height: 40px; padding: 0 14px; white-space: nowrap; }
+.tray-hint { font: 500 11px var(--font-sans); color: var(--muted-foreground); }
+.tray-added { display: flex; gap: 10px; flex-wrap: wrap; }
+.tray-added .solid-btn { cursor: default; }
+.has-tray .archive-content { padding-bottom: 110px; }
+.render-panel { position: relative; display: grid; justify-items: center; gap: 10px; padding: 26px; background: var(--background); border-radius: 2px; max-width: 92vw; max-height: 92svh; overflow: auto; }
+.render-panel .stylist-avatar-box { height: min(76svh, 820px); }
+.render-status { margin: 0; min-height: 1.2em; font: 600 12px var(--font-sans); letter-spacing: .06em; color: var(--muted-foreground); }
+@media (max-width: 767px) {
+  .has-tray .add-fab { bottom: 110px; }
+  .outfit-tray { gap: 8px; }
+  .tray-slot { width: 46px; height: 58px; }
+  .render-panel .stylist-avatar-box { height: min(66svh, 520px); }
+}
+
+/* ---- QA fixes ---- */
+/* Tray thumbnails: fixed box, never spill. */
+.tray-slot img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 2px; }
+.tray-slot { overflow: visible; }
+/* Render frames (closet dialog + stylist): a fixed portrait frame, image fit by height and centered.
+   3:4 instead of 1:2 so a landscape try-on isn't shrunk more than necessary. */
+.render-panel .stylist-avatar-box, .stylist-page .stylist-avatar-box { aspect-ratio: 3 / 4; max-width: calc(100vw - 32px); }
+.render-panel .stylist-avatar-box { max-height: calc(100svh - 150px); }
+.render-img { object-fit: contain; object-position: center; }
+/* Try-ons arrive as transparent PNGs: no frame background, they sit on the page. */
+.render-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in oklch, var(--primary) 14%, transparent); pointer-events: none; z-index: 2; }
+.render-progress span { display: block; height: 100%; background: var(--primary); transform-origin: left center; transform: scaleX(0); }
+.render-progress--running span { animation: render-fill 13s cubic-bezier(.2,.7,.3,1) forwards; }
+.render-progress--done span { transform: scaleX(1); }
+.render-progress--done { animation: render-fade .6s ease .35s forwards; }
+@keyframes render-fill { from { transform: scaleX(0); } to { transform: scaleX(.9); } }
+@keyframes render-fade { to { opacity: 0; } }
+.render-retry { margin-left: 10px; min-height: 30px; padding: 0 12px; font-size: 12px; }
+@media (max-width: 700px) {
+  .archive-content { padding-bottom: 84px; }
+  .has-tray .archive-content { padding-bottom: 164px; }
+}
+/* demo avatar toggle in the hanger menu */
+.hanger-demo { margin-top: 6px; padding: 10px 19px 4px; border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent); display: grid; gap: 4px; }
+.hanger-switch { white-space: nowrap; text-align: left; min-height: 0; letter-spacing: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 0; background: none; border: 0; color: var(--foreground); font: 500 14px/1.4 var(--font-sans); cursor: pointer; }
+.hanger-switch:disabled { opacity: .45; cursor: default; }
+.hanger-switch-track { position: relative; width: 32px; height: 18px; flex: none; border-radius: 999px; background: var(--muted); border: 1px solid var(--border); transition: background .2s; }
+.hanger-switch-knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--foreground); transition: transform .2s; }
+.hanger-switch.is-on .hanger-switch-track { background: var(--primary); border-color: var(--primary); }
+.hanger-switch.is-on .hanger-switch-knob { transform: translateX(14px); background: var(--primary-foreground); }
+.hanger-demo small { font: 500 11px var(--font-sans); color: var(--muted-foreground); }

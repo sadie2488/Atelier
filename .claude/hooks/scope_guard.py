@@ -46,6 +46,9 @@ LANE_SCOPE = {
         "backend/tests/test_avatar.py",
         "media/_preview/**",
     ],
+    "frontend": [
+        "frontend/**",
+    ],
 }
 
 # Writable by ANY lane, overriding FROZEN below. These are the escape hatches the agent

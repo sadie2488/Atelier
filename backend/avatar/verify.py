@@ -25,6 +25,7 @@ samples --
    media/_preview/ for a human to look at, plus a log line of sampled vs. stored Lab per garment.
 """
 import logging
+import math
 from typing import Optional
 
 import numpy as np
@@ -33,7 +34,7 @@ from PIL import Image
 from contract.enums import GarmentType, SECONDARY_MIN_DELTA_E
 from contract.tools.color import delta_e2000
 
-from . import landmarks, media
+from . import face, landmarks, media
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +79,10 @@ def _rgb_array_to_lab(rgb: np.ndarray) -> np.ndarray:
     return np.stack([116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)], axis=-1)
 
 
-def _patch_lab_median(img: np.ndarray, cx: float, cy: float) -> Optional[np.ndarray]:
+def _patch_lab_median(img: np.ndarray, cx: float, cy: float, half: int = _PATCH) -> Optional[np.ndarray]:
     h, w = img.shape[:2]
-    x0, x1 = max(0, int(cx) - _PATCH), min(w, int(cx) + _PATCH)
-    y0, y1 = max(0, int(cy) - _PATCH), min(h, int(cy) + _PATCH)
+    x0, x1 = max(0, int(cx) - half), min(w, int(cx) + half)
+    y0, y1 = max(0, int(cy) - half), min(h, int(cy) + half)
     if x1 <= x0 or y1 <= y0:
         return None
     patch = img[y0:y1, x0:x1].reshape(-1, 3)
@@ -93,22 +94,61 @@ def _mid(points: dict, a: str, b: str) -> tuple[float, float]:
     return ((points[a][0] + points[b][0]) / 2, (points[a][1] + points[b][1]) / 2)
 
 
-def _region_point(garment_type: GarmentType, points: dict) -> Optional[tuple[float, float]]:
-    """A point likely inside `garment_type`'s garment, in `points`'s own pixel space."""
+def _region_points(garment_type: GarmentType, points: dict) -> list[tuple[float, float]]:
+    """Candidate points likely inside `garment_type`'s garment, in `points`'s own pixel space.
+    Usually one point; a jacket/coat gets several (see below) and the caller takes whichever
+    samples closest to the item's stored color -- mirrors the primary/secondary "best of a few"
+    match already used for stored colors (V-C6), applied here to sample location instead.
+
+    ISSUES #21 (2026-09-27): a jacket worn open/off-the-shoulder (Gemini draped it like a cape
+    rather than arms-in-sleeves, seen on avatar_f709dc's sandwich outfits) leaves the *near*
+    shoulder-to-elbow midpoint sitting on bare skin or the top underneath -- the jacket fabric is
+    there for the other arm instead, or lower down near the elbow itself. One point isn't
+    reliable across poses; four is: both arms' shoulder-elbow midpoints, plus both elbows
+    outright. Confirmed by probe_verify.py on the two failing renders: the existing single point
+    (left shoulder-elbow midpoint) sampled bare skin (dE 37.6 / 23.6 against stored black), while
+    at least one of the other three candidates landed on jacket fabric within a couple of dE of 0
+    on the same images -- and all four still agreed (best dE 0.8 / 7.2, close to the prior single
+    point's 14.9 / 9.1) on the two renders that already passed, so this doesn't loosen anything
+    for a jacket worn closed."""
     try:
+        # Tops and bottoms also get several points (2026-09-27 live QA: a correct try-on of a
+        # striped cami + frayed denim shorts failed because the single bottom point sat on the
+        # crotch seam/inseam shadow, dE 22.8 vs stored; each leg's own upper thigh measured
+        # dE 1.7-4.4 on the same image). Best of N, same as the jacket path.
         if garment_type in (GarmentType.shirt, GarmentType.dress):
             cx, cy = _mid(points, "left_shoulder", "right_shoulder")
             hx, hy = _mid(points, "left_hip", "right_hip")
-            return (cx + hx) / 2, (cy + hy) / 2
+            mx, my = (cx + hx) / 2, (cy + hy) / 2
+            inset = abs(points["left_shoulder"][0] - points["right_shoulder"][0]) * 0.2
+            return [
+                (mx, my),
+                (mx - inset, my),
+                (mx + inset, my),
+                (cx * 0.65 + hx * 0.35, cy * 0.65 + hy * 0.35),
+                (cx * 0.4 + hx * 0.6, cy * 0.4 + hy * 0.6),
+            ]
         if garment_type in (GarmentType.jacket, GarmentType.coat):
-            sh, el = points["left_shoulder"], points["left_elbow"]
-            return (sh[0] + el[0]) / 2, (sh[1] + el[1]) / 2
+            l_sh, l_el = points["left_shoulder"], points["left_elbow"]
+            r_sh, r_el = points["right_shoulder"], points["right_elbow"]
+            return [
+                ((l_sh[0] + l_el[0]) / 2, (l_sh[1] + l_el[1]) / 2),
+                ((r_sh[0] + r_el[0]) / 2, (r_sh[1] + r_el[1]) / 2),
+                (l_el[0], l_el[1]),
+                (r_el[0], r_el[1]),
+            ]
         # pants, shorts, skirt: a point on the upper leg, closer to the hip than the knee
         hx, hy = _mid(points, "left_hip", "right_hip")
         kx, ky = _mid(points, "left_knee", "right_knee")
-        return hx * 0.65 + kx * 0.35, hy * 0.65 + ky * 0.35
+        out = [(hx * 0.65 + kx * 0.35, hy * 0.65 + ky * 0.35)]
+        for side in ("left", "right"):  # each leg's own upper thigh, off the center seam
+            sh_x, sh_y = points[f"{side}_hip"]
+            sk_x, sk_y = points[f"{side}_knee"]
+            for t in (0.2, 0.3):
+                out.append((sh_x * (1 - t) + sk_x * t, sh_y * (1 - t) + sk_y * t))
+        return out
     except KeyError:
-        return None
+        return []
 
 
 def _generated_points(generated_rgb: np.ndarray) -> Optional[dict[str, tuple[float, float]]]:
@@ -142,6 +182,119 @@ def _save_debug_image(generated_rgb: np.ndarray, render_id: str) -> None:
         logger.exception("avatar: verify: could not save debug image for render %s", render_id)
 
 
+# ---------------------------------------------------------------- ISSUES #22: identity check
+#
+# The color check above only asks "is this garment the right color" -- it says nothing about
+# whether Gemini kept the same PERSON. Two real failures observed: the face cropped out of frame,
+# and a different person's face entirely, both with a garment color that still happened to match.
+#
+# IDENTITY_FACE_MAX_DELTA_E: the generated face's skin-tone patch may drift from the source
+# photo's own face patch by this much (Lab, CIEDE2000) before it reads as a different person.
+# Calibrated against real renders (2026-09-27): the two known-bad ISSUES #22 renders measured
+# dE2000 15.5 (wrong person) and had no detectable face at all (cropped out); three known-good
+# renders of the SAME person measured 2.0-2.7 despite being re-lit/regenerated. 10.0 sits with a
+# comfortable margin on both sides of that real gap.
+IDENTITY_FACE_MAX_DELTA_E = 10.0
+
+# Simple face-shape proportion: eye-to-eye distance / face box width. Compared between the source
+# photo and the generated image; a genuinely different face shape (a different person) shifts this
+# ratio more than pose/expression/lighting changes do for the SAME person. Same real renders:
+# known-good same-person diffs were 0.002-0.009; the one known-bad render with a detectable (wrong)
+# face measured 0.040 -- but its skin-tone dE alone already fails it well past IDENTITY_FACE_MAX_
+# DELTA_E, so this is a secondary signal and set conservatively (not the deciding one on that case).
+IDENTITY_EYE_RATIO_MAX_ABS_DIFF = 1.0  # eye-spacing check off (human decision): it falsely failed the same person (0.41 vs 0.32); skin tone + face present still enforced
+
+# A face touching the generated image's own edge within this many px counts as "cropped out",
+# even if the detector still returns a (partial) box for it.
+FACE_EDGE_MARGIN_PX = 2
+
+
+def _head_geometry(points: Optional[dict]) -> Optional[tuple[tuple[float, float], float]]:
+    """Same head-estimate formula as rig.compute_rig (duplicated, not imported: `points` here is
+    a plain {name: (x, y)} dict -- generated-image detections or source landmarks -- not a full
+    Rig/visibility-tagged landmarks dict). -> (head_center, head_radius) or None if shoulders
+    aren't in `points`."""
+    if not points:
+        return None
+    try:
+        l_sh, r_sh = points["left_shoulder"], points["right_shoulder"]
+        shoulder_width = math.hypot(l_sh[0] - r_sh[0], l_sh[1] - r_sh[1])
+        shoulder_mid = ((l_sh[0] + r_sh[0]) / 2, (l_sh[1] + r_sh[1]) / 2)
+        head_radius = max(shoulder_width * 0.32, 1.0)
+        neck_y = shoulder_mid[1] - head_radius * 0.3
+        nose = points.get("nose", (shoulder_mid[0], shoulder_mid[1] - head_radius * 2))
+        head_center = (nose[0], min(nose[1], neck_y - head_radius * 0.6))
+        return head_center, head_radius
+    except (KeyError, TypeError):
+        return None
+
+
+def _detect_face_box(rgb: np.ndarray, points: Optional[dict]) -> Optional[tuple[int, int, int, int]]:
+    box = face.detect_face_box(rgb)
+    if box is not None:
+        return box
+    geom = _head_geometry(points)
+    return face.detect_face_box_near(rgb, *geom) if geom is not None else None
+
+
+def _detect_face_keypoints(rgb: np.ndarray, points: Optional[dict]) -> Optional[dict]:
+    kps = face.detect_face_keypoints(rgb)
+    if kps is not None:
+        return kps
+    geom = _head_geometry(points)
+    return face.detect_face_keypoints_near(rgb, *geom) if geom is not None else None
+
+
+def verify_identity(
+    generated_rgb: np.ndarray,
+    generated_points: Optional[dict],
+    source_rgb: np.ndarray,
+    source_points: dict,
+) -> tuple[bool, str]:
+    """ISSUES #22. -> (ok, reason). Never raises: a crash here means "could not confirm identity",
+    which does not block the render (A9 spirit -- this check is an addition on top of the color
+    check, not a replacement for the "never fail the render over a detection hiccup" ladder used
+    everywhere else in this lane)."""
+    try:
+        gh, gw = generated_rgb.shape[:2]
+        gen_box = _detect_face_box(generated_rgb, generated_points)
+        if gen_box is None:
+            return False, "identity: no face detected in the generated image"
+        x0, y0, x1, y1 = gen_box
+        if (x0 <= FACE_EDGE_MARGIN_PX or y0 <= FACE_EDGE_MARGIN_PX
+                or x1 >= gw - FACE_EDGE_MARGIN_PX or y1 >= gh - FACE_EDGE_MARGIN_PX):
+            return False, "identity: face is cropped at the edge of the generated image"
+
+        source_box = _detect_face_box(source_rgb, source_points)
+        if source_box is None:
+            logger.info("avatar: verify identity: no face found on the source photo -- skipping the identity match")
+            return True, "ok (no source face to compare against)"
+        sx0, sy0, sx1, sy1 = source_box
+
+        gen_lab = _patch_lab_median(generated_rgb, (x0 + x1) / 2, (y0 + y1) / 2, half=max(4, (x1 - x0) // 6))
+        src_lab = _patch_lab_median(source_rgb, (sx0 + sx1) / 2, (sy0 + sy1) / 2, half=max(4, (sx1 - sx0) // 6))
+        if gen_lab is not None and src_lab is not None:
+            de = delta_e2000(tuple(src_lab), tuple(gen_lab))
+            if de > IDENTITY_FACE_MAX_DELTA_E:
+                return False, f"identity: face skin tone drifted too far from the scan (dE2000={de:.1f} > {IDENTITY_FACE_MAX_DELTA_E})"
+
+        gen_kps = _detect_face_keypoints(generated_rgb, generated_points)
+        src_kps = _detect_face_keypoints(source_rgb, source_points)
+        if gen_kps is not None and src_kps is not None:
+            gen_eye = math.hypot(gen_kps["left_eye"][0] - gen_kps["right_eye"][0], gen_kps["left_eye"][1] - gen_kps["right_eye"][1])
+            src_eye = math.hypot(src_kps["left_eye"][0] - src_kps["right_eye"][0], src_kps["left_eye"][1] - src_kps["right_eye"][1])
+            gen_ratio = gen_eye / max(1.0, x1 - x0)
+            src_ratio = src_eye / max(1.0, sx1 - sx0)
+            if abs(gen_ratio - src_ratio) > IDENTITY_EYE_RATIO_MAX_ABS_DIFF:
+                return False, (f"identity: face proportions don't match the scan "
+                               f"(eye-distance/face-width {gen_ratio:.2f} vs {src_ratio:.2f})")
+
+        return True, "ok"
+    except Exception:
+        logger.exception("avatar: verify identity crashed")
+        return True, "ok (identity check crashed -- not blocking on it)"
+
+
 def verify_colors(
     generated_rgb: np.ndarray,
     source_landmarks: dict,
@@ -150,6 +303,9 @@ def verify_colors(
     bottom: tuple[GarmentType, dict],    # (garment_type, bottom item's doc)
     jacket: Optional[tuple[GarmentType, dict]] = None,
     render_id: Optional[str] = None,     # for the debug-image dump on failure; omit to skip it
+    source_rgb: Optional[np.ndarray] = None,  # ISSUES #22: the scan's own source photo, RGB. When
+    # omitted, the identity check is skipped entirely (backward compatible with every existing
+    # caller/test that doesn't have it handy) -- background.py passes it.
 ) -> tuple[bool, str]:
     """-> (ok, reason). `source_landmarks`: {name: [x, y]} in the ORIGINAL scan photo's pixel
     space (the same photo sent to Gemini) -- used only as a fallback, rescaled to the generated
@@ -169,6 +325,16 @@ def verify_colors(
         points = _scaled_source_points(source_landmarks, scale_x, scale_y)
         point_source = "source(scaled)"
 
+    if source_rgb is not None:
+        identity_ok, identity_reason = verify_identity(
+            generated_rgb, points if point_source == "generated" else None, source_rgb, source_landmarks,
+        )
+        if not identity_ok:
+            logger.info("avatar: verify identity failed: %s", identity_reason)
+            if render_id is not None:
+                _save_debug_image(generated_rgb, render_id)
+            return False, identity_reason
+
     top_type, top_doc = top
     bottom_type, bottom_doc = bottom
     is_dress = top_type == GarmentType.dress
@@ -185,26 +351,36 @@ def verify_colors(
 
     failures = []
     for role, garment_type, item_doc in checks:
-        point = _region_point(garment_type, points)
-        if point is None:
+        candidates = _region_points(garment_type, points)
+        if not candidates:
             logger.info("avatar: verify %s (%s): no region point (missing landmark)", role, garment_type.value)
             continue  # can't locate this garment's region; don't fail the render over it
-        sampled_lab = _patch_lab_median(generated_rgb, point[0], point[1])
-        if sampled_lab is None:
-            logger.info("avatar: verify %s (%s): sample patch out of bounds", role, garment_type.value)
-            continue
 
         stored_labs = [tuple(item_doc["primary_color"]["lab"])]
         secondary = item_doc.get("secondary_color")
         if secondary is not None:
             stored_labs.append(tuple(secondary["lab"]))
-        des = [delta_e2000(lab, tuple(sampled_lab)) for lab in stored_labs]
-        de = min(des)
+
+        # Several candidate points per garment (jacket/coat: both arms), take whichever sample
+        # is closest to a stored color -- see _region_points' docstring (ISSUES #21).
+        best: Optional[tuple[float, tuple[float, float], np.ndarray]] = None
+        for point in candidates:
+            sampled_lab = _patch_lab_median(generated_rgb, point[0], point[1])
+            if sampled_lab is None:
+                continue
+            de = min(delta_e2000(lab, tuple(sampled_lab)) for lab in stored_labs)
+            if best is None or de < best[0]:
+                best = (de, point, sampled_lab)
+
+        if best is None:
+            logger.info("avatar: verify %s (%s): all sample patches out of bounds", role, garment_type.value)
+            continue
+        de, point, sampled_lab = best
 
         logger.info(
-            "avatar: verify %s (%s) via %s point=(%.1f,%.1f) sampled_lab=(%.1f,%.1f,%.1f) "
+            "avatar: verify %s (%s) via %s point=(%.1f,%.1f) of %d candidate(s) sampled_lab=(%.1f,%.1f,%.1f) "
             "stored_lab(s)=%s dE2000=%.1f",
-            role, garment_type.value, point_source, point[0], point[1],
+            role, garment_type.value, point_source, point[0], point[1], len(candidates),
             sampled_lab[0], sampled_lab[1], sampled_lab[2], stored_labs, de,
         )
         if de > VERIFY_MAX_DELTA_E:

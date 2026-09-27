@@ -1,18 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { CATEGORIES, createRender, generateOutfits, pollRender, type Category, type Item } from "@/lib/api";
-import { useItems, useStoredAvatar } from "@/lib/hooks";
+import { CATEGORIES, DEMO_OUTFITS, generateOutfits, type Category, type Item } from "@/lib/api";
+import { useDemoToggle, useItems, useStoredAvatar } from "@/lib/hooks";
+import { RenderProgress } from "@/components/RenderProgress";
+import { useRender } from "@/lib/useRender";
 
 type Lists = Record<Category, Item[]>;
-type RenderView = { local?: string; generated?: string; pending: boolean };
 
 const toFront = (list: Item[], id: string | null | undefined) => {
   const hit = id ? list.find((g) => g.id === id) : undefined;
   return hit ? [hit, ...list.filter((g) => g.id !== hit.id)] : list;
+};
+
+// The closet's outfit tray (sessionStorage), carried one way into the stylist on load.
+type Tray = Partial<Record<"top" | "bottom" | "jacket", string>>;
+const readTray = (): Tray => {
+  try { const v = sessionStorage.getItem("atelier:outfit-tray"); return v ? (JSON.parse(v) as Tray) : {}; } catch { return {}; }
 };
 
 // Plain-words label for a strategy code, e.g. "neutral_anchor" -> "neutral anchor".
@@ -26,53 +33,31 @@ export default function StylistPage() {
   const [explanation, setExplanation] = useState<string | null>(null);
   const [why, setWhy] = useState<{ strategy: string; score: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<"none" | "failed" | null>(null);
+  const [notice, setNotice] = useState<"none" | "failed" | "render" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<RenderView | null>(null);
+  const trayApplied = useRef(false);
+  const demo = useDemoToggle();
+  const plannedIdx = useRef(0); // next planned demo outfit (cycles)
+  // Toggling the demo avatar restarts the planned sequence and drops the old explanation.
+  useEffect(() => { plannedIdx.current = 0; setExplanation(null); setWhy(null); }, [demo.on]);
 
   // Lists keep the server's order (newest first); only "generate outfit" moves items to position 0.
   useEffect(() => {
     if (!itemsQ.items) return;
     const g = itemsQ.items;
-    setLists({ tops: g.filter((x) => x.category === "tops"), bottoms: g.filter((x) => x.category === "bottoms"), jackets: g.filter((x) => x.category === "jackets") });
+    const base: Lists = { tops: g.filter((x) => x.category === "tops"), bottoms: g.filter((x) => x.category === "bottoms"), jackets: g.filter((x) => x.category === "jackets") };
+    // Put the closet's tray pieces at index 0 whenever the lists are (re)built; no render (renders stay explicit).
+    const tray = readTray();
+    setLists({ tops: toFront(base.tops, tray.top), bottoms: toFront(base.bottoms, tray.bottom), jackets: toFront(base.jackets, tray.jacket) });
+    if (!trayApplied.current && (tray.top || tray.bottom || tray.jacket)) {
+      trayApplied.current = true;
+      setIdx({ tops: 0, bottoms: 0, jackets: 0 });
+      setNoJacket(!(tray.jacket && base.jackets.some((x) => x.id === tray.jacket)));
+    }
   }, [itemsQ.items]);
 
-  const top = lists?.tops[idx.tops];
-  const bottom = lists?.bottoms[idx.bottoms];
-  const jacket = noJacket ? undefined : lists?.jackets[idx.jackets];
-  const avatarId = avatar?.avatar_id;
-  const renderCtlRef = useRef<AbortController | null>(null);
-
-  // Render on explicit action only (DECISIONS A-R1): "See it on me" for the current selection,
-  // or right after "generate outfit" positions the lists. Never on swipe or selection change.
-  // Two-stage: show local_url at once, poll for generated_url, swap silently. Failures never surface.
-  const requestRender = useCallback((topId: string, bottomId: string, jacketId: string | null) => {
-    if (!avatarId) return;
-    renderCtlRef.current?.abort();
-    const ctl = new AbortController();
-    renderCtlRef.current = ctl;
-    setLoading(true);
-    (async () => {
-      try {
-        const job = await createRender({ avatar_id: avatarId, top_id: topId, bottom_id: bottomId, jacket_id: jacketId });
-        if (ctl.signal.aborted) return;
-        setLoading(false);
-        setView({ local: job.local_url, generated: job.generated_url ?? undefined, pending: job.status === "pending" });
-        if (job.status !== "pending") return;
-        const done = await pollRender(job.render_id, ctl.signal);
-        if (ctl.signal.aborted) return;
-        setView({ local: job.local_url, generated: done?.generated_url ?? undefined, pending: false });
-      } catch {
-        if (!ctl.signal.aborted) { setLoading(false); setView((v) => (v ? { ...v, pending: false } : null)); }
-      }
-    })();
-  }, [avatarId]);
-
-  // Cancel any in-flight render/poll on unmount.
-  useEffect(() => () => { renderCtlRef.current?.abort(); }, []);
-
-  const seeItOnMe = () => { if (top && bottom) requestRender(top.id, bottom.id, jacket?.id ?? null); };
+  // Render only right after "generate outfit" positions the lists; never on swipe or selection change.
+  const { view, bar, requestRender, commitView, clearRender } = useRender(avatar?.avatar_id);
 
   if (avatar === undefined || itemsQ.isPending) return <main className="flow-page"><Loader label="Setting up the studio…" /></main>;
   if (avatar === null) return (
@@ -84,10 +69,7 @@ export default function StylistPage() {
 
   const tooSmall = lists.tops.length === 0 || lists.bottoms.length === 0;
 
-  // Swiping never calls /api/render — it just clears a stale render (and cancels any in-flight poll
-  // for the selection being left) so the avatar falls back to the plain avatar image.
-  const clearRender = () => { renderCtlRef.current?.abort(); setLoading(false); setView(null); };
-
+  // Swiping never calls /api/render — it just clears a stale render (clearRender cancels any in-flight poll).
   const swipe = (c: Category, d: number) => {
     const n = lists[c].length;
     if (!n) return;
@@ -97,24 +79,43 @@ export default function StylistPage() {
     clearRender();
   };
 
+  // Nothing on the page changes until Nano Banana's image is ready: the current still, the lists
+  // and the explanation stay put while we wait; then everything updates at once.
+  // On failure the page stays exactly as it was, with a calm note.
   const generate = async () => {
     setBusy(true); setNotice(null);
     try {
-      const outfits = await generateOutfits(5);
-      const best = outfits[0];
-      if (!best) { setNotice("none"); return; }
-      setLists({ tops: toFront(lists.tops, best.top_id), bottoms: toFront(lists.bottoms, best.bottom_id), jackets: toFront(lists.jackets, best.jacket_id) });
+      let pick: { top_id: string; bottom_id: string; jacket_id: string | null };
+      let text: { explanation: string; strategy: string; score: number } | null = null;
+      if (demo.on && DEMO_OUTFITS.length) {
+        // Demo: planned outfits in order (cycling); explanation only if the generator returned the same combo.
+        const plan = DEMO_OUTFITS[plannedIdx.current % DEMO_OUTFITS.length];
+        plannedIdx.current += 1;
+        const outfits = await generateOutfits(5).catch(() => []);
+        const hit = outfits.find((o) => o.top_id === plan.top_id && o.bottom_id === plan.bottom_id && (o.jacket_id ?? null) === plan.jacket_id);
+        pick = { top_id: plan.top_id, bottom_id: plan.bottom_id, jacket_id: plan.jacket_id };
+        if (hit) text = { explanation: hit.explanation, strategy: hit.strategy, score: hit.score };
+      } else {
+        const outfits = await generateOutfits(5);
+        const best = outfits[0];
+        if (!best) { setNotice("none"); return; }
+        pick = { top_id: best.top_id, bottom_id: best.bottom_id, jacket_id: best.jacket_id ?? null };
+        text = { explanation: best.explanation, strategy: best.strategy, score: best.score };
+      }
+      const out = await requestRender(pick.top_id, pick.bottom_id, pick.jacket_id, { keep: true });
+      if (!out.ok) { if (!out.aborted) setNotice("render"); return; }
+      // Commit everything in one go (React batches these into a single paint).
+      commitView(out.view);
+      setLists((cur) => cur && { tops: toFront(cur.tops, pick.top_id), bottoms: toFront(cur.bottoms, pick.bottom_id), jackets: toFront(cur.jackets, pick.jacket_id) });
       setIdx({ tops: 0, bottoms: 0, jackets: 0 });
-      setNoJacket(!best.jacket_id);
-      setExplanation(best.explanation);
-      setWhy({ strategy: best.strategy, score: best.score });
-      // Render right away for the top-ranked outfit just positioned at index 0.
-      requestRender(best.top_id, best.bottom_id, best.jacket_id ?? null);
+      setNoJacket(!pick.jacket_id);
+      setExplanation(text?.explanation ?? null);
+      setWhy(text ? { strategy: text.strategy, score: text.score } : null);
     } catch { setNotice("failed"); }
     finally { setBusy(false); }
   };
 
-  const shown = view?.generated ?? view?.local ?? (loading ? avatar.wireframe_url : avatar.avatar_url);
+  const shown = view?.generated ?? avatar.avatar_url; // only the Nano Banana image or the plain avatar, never the coordinate-placed preview
 
   return (
     <main className="stylist-page" aria-label="Stylist">
@@ -135,9 +136,11 @@ export default function StylistPage() {
       </div>
 
       <div className="stylist-avatar">
-        <div className={`stylist-avatar-box${view?.pending ? " render-frame--pending" : ""}`}>
+        <div className={`stylist-avatar-box${busy ? " render-frame--pending" : ""}${view?.generated ? " render-frame--generated" : ""}`}>
           <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
+          <RenderProgress bar={bar} />
         </div>
+        <p className="render-status" aria-live="polite">{busy ? "styling your look…" : " "}</p>
         {explanation && <p className="stylist-explain">{explanation}</p>}
         {why && <p className="stylist-why">why this works: {strategyLabel(why.strategy)} &middot; {Math.round(why.score * 100)}%</p>}
       </div>
@@ -149,9 +152,9 @@ export default function StylistPage() {
         ) : (
           <button type="button" className="stylist-action" onClick={generate} disabled={busy}>{busy ? "styling…" : "generate outfit"}</button>
         )}
-        <button type="button" className="stylist-action" onClick={seeItOnMe} disabled={!top || !bottom || loading}>see it on me</button>
         <button type="button" className={`stylist-action${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => { setNoJacket((v) => !v); clearRender(); }}>{noJacket ? "with jacket" : "no jacket"}</button>
         {notice === "none" && <p className="stylist-note">No good combinations from this closet yet. Add a few more pieces.</p>}
+        {notice === "render" && <p className="stylist-note">Couldn&apos;t style this one just now. Generate again in a moment.</p>}
         {notice === "failed" && <p className="stylist-note">The stylist couldn&apos;t compose a look just now. Try again in a moment.</p>}
       </div>
     </main>

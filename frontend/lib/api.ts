@@ -125,3 +125,29 @@ export async function downscale(src: HTMLVideoElement | File, maxEdge = 1080): P
   c.getContext("2d")?.drawImage(source, 0, 0, c.width, c.height);
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new ApiError("unsupported_image", "This file isn't an image we can read."))), "image/jpeg", 0.85));
 }
+
+// Demo avatar toggle (menu): its own key; never touches the scanned avatar in AVATAR_KEY.
+export const DEMO_AVATAR_ID = process.env.NEXT_PUBLIC_DEMO_AVATAR_ID || BACKUP_AVATAR_ID;
+const DEMO_KEY = "atelier:demo-avatar";
+export const DEMO_EVENT = "atelier:demo-avatar-change";
+export function getDemoOn(): boolean {
+  try { return !!DEMO_AVATAR_ID && localStorage.getItem(DEMO_KEY) === "1"; } catch { return false; }
+}
+export function setDemoOn(on: boolean) {
+  try { if (on) localStorage.setItem(DEMO_KEY, "1"); else localStorage.removeItem(DEMO_KEY); } catch { /* storage unavailable */ }
+  window.dispatchEvent(new Event(DEMO_EVENT));
+}
+// Fetch an avatar without storing it (the demo avatar must not replace the scanned one).
+export async function fetchAvatarNoStore(id: string): Promise<StoredAvatar> {
+  const a = await http<Avatar>(`/avatar/${encodeURIComponent(id)}`);
+  return { avatar_id: a.avatar_id, wireframe_url: a.wireframe_url, avatar_url: a.avatar_url };
+}
+
+// Planned demo outfits (only used while the demo toggle is ON):
+// NEXT_PUBLIC_DEMO_OUTFITS="top_id,bottom_id[,jacket_id];top_id,bottom_id[,jacket_id]"
+export type PlannedOutfit = { top_id: string; bottom_id: string; jacket_id: string | null };
+export const DEMO_OUTFITS: PlannedOutfit[] = (process.env.NEXT_PUBLIC_DEMO_OUTFITS || "")
+  .split(";")
+  .map((s) => s.split(",").map((x) => x.trim()).filter(Boolean))
+  .filter((p) => p.length >= 2)
+  .map(([top_id, bottom_id, jacket_id]) => ({ top_id, bottom_id, jacket_id: jacket_id || null }));

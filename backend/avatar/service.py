@@ -18,11 +18,11 @@ from backend import config
 from contract.enums import ErrorCode, GarmentType, MAX_UPLOAD_BYTES, RenderStatus
 
 from . import background, compositing, face, ids, media, person, skin
-from .draw import draw_avatar, draw_wireframe
+from .draw import draw_wireframe
 from .errors import AvatarError
 from .landmarks import LM_INDEX, detect_landmarks
 from .pose_validation import validate as validate_pose
-from .rig import canvas_bbox, compute_rig, rig_from_dict, rig_to_dict, translate
+from .rig import compute_rig, rig_from_dict, rig_to_dict, translate
 
 # A phone camera frame can be 4000-6000px on its long side. Landmarking, drawing (draw.py's own
 # SUPERSAMPLE_MAX_DIM=1200 already assumes a canvas well under this), the stored source photo,
@@ -60,54 +60,49 @@ def build_avatar_visuals(rgb: np.ndarray, landmarks: dict) -> dict:
     canvas geometry. Shared by scan() and backend/avatar/scripts/reprocess_avatar.py, so a
     reprocessed avatar is built by exactly the same code as a fresh scan.
 
-    A3 change (human decision 2026-09-26; A-B3 superseded in contract/DECISIONS.md): the avatar
-    is a real-body cutout (person.build_person_cutout) on a transparent 1:2 canvas when the
-    person mask is plausible; otherwise it falls back to today's drawn mannequin (A-B8 spirit --
-    a scan never fails over this). The wireframe is always drawn on the SAME canvas geometry as
-    the avatar image, so the two align pixel-for-pixel and the local composite (which places
-    garments via this rig) is correct either way.
+    A3 change (human decision 2026-09-26; A-B3 superseded in contract/DECISIONS.md), tightened
+    2026-09-27 ("no mannequin at all" -- live landscape webcam scans were falling back to it):
+    the avatar image is now ALWAYS a real photo of the person, never line art --
+      - a real-body cutout (person.build_person_cutout) when the person mask is plausible, or
+      - a plain photo crop of the person (person.photo_crop_fallback), vignetted to transparency
+        at its edges, when segmentation fails or is implausible.
+    Both are built from the person's own pose bounding box (person.pose_bbox -- head to feet, from
+    the landmarks already detected for the rig), not the whole frame, so a person who is a small
+    fraction of a landscape frame is still a large fraction of the region actually analyzed
+    (backend/avatar/person.py's module docstring has the full story).
+
+    The wireframe is always drawn on the SAME canvas geometry as the avatar image (it is no longer
+    ever the avatar itself), so the two align pixel-for-pixel; it remains available as the render
+    loading state (`wireframe_url`) and as placement's rig either way.
     """
     rig = compute_rig(landmarks)
+    frame_size = (rgb.shape[1], rgb.shape[0])
+    bbox = person.pose_bbox(rig, landmarks, frame_size)
+    ankle_y = (rig.landmarks["left_ankle"][1] + rig.landmarks["right_ankle"][1]) / 2.0
 
-    person_cutout = person.build_person_cutout(rgb)
-    if person_cutout is not None:
-        crop_img, (cx0, cy0, cx1, cy1) = person_cutout
-        canvas_img, (ox, oy) = person.pad_to_ratio(crop_img)
-        canvas_w, canvas_h = canvas_img.size
-        rig_local = translate(rig, -cx0 + ox, -cy0 + oy)
-        wireframe_img = draw_wireframe(rig_local, (canvas_w, canvas_h))
-        return {
-            "avatar_img": canvas_img,
-            "wireframe_img": wireframe_img,
-            "rig_local": rig_local,
-            "canvas_w": canvas_w,
-            "canvas_h": canvas_h,
-            "avatar_kind": "real_body",
-        }
+    shoulder_y = min(rig.landmarks["left_shoulder"][1], rig.landmarks["right_shoulder"][1])
+    cutout = person.build_person_cutout(rgb, bbox, ankle_y=ankle_y, shoulder_y=shoulder_y)
+    if cutout is not None:
+        crop_img, full_bbox = cutout
+        avatar_kind = "real_body"
+    else:
+        crop_img = person.photo_crop_fallback(rgb, bbox)
+        full_bbox = bbox
+        avatar_kind = "photo_crop"
 
-    x0, y0, x1, y1 = canvas_bbox(rig)
-    canvas_w, canvas_h = max(1, round(x1 - x0)), max(1, round(y1 - y0))
-    rig_local = translate(rig, -x0, -y0)
-
-    face_box = face.detect_face_box_near(rgb, rig.head_center, rig.head_radius)
-    face_img = None
-    face_patch_center = None
-    if face_box is not None:
-        face_img = face.crop_face(rgb, face_box)
-        fx0, fy0, fx1, fy1 = face_box
-        face_patch_center = ((fx0 + fx1) / 2, (fy0 + fy1) / 2)
-
-    skin_rgb = skin.sample_skin_tone(rgb, landmarks, face_patch_center)
-
+    canvas_img, (ox, oy) = person.pad_to_ratio(crop_img)
+    canvas_w, canvas_h = canvas_img.size
+    fx0, fy0, _fx1, _fy1 = full_bbox
+    rig_local = translate(rig, -fx0 + ox, -fy0 + oy)
     wireframe_img = draw_wireframe(rig_local, (canvas_w, canvas_h))
-    avatar_img = draw_avatar(rig_local, (canvas_w, canvas_h), skin_rgb, face_img)
+
     return {
-        "avatar_img": avatar_img,
+        "avatar_img": canvas_img,
         "wireframe_img": wireframe_img,
         "rig_local": rig_local,
         "canvas_w": canvas_w,
         "canvas_h": canvas_h,
-        "avatar_kind": "drawn",
+        "avatar_kind": avatar_kind,
     }
 
 
@@ -193,6 +188,7 @@ def render(
     bottom_doc: dict,
     jacket_doc: Optional[dict],
     renders_collection,
+    prewarm: bool = False,
 ) -> dict:
     """-> the render doc as inserted (contract fields). The local composite is built here and
     always succeeds from this point on (A-R2, A-R6). If generation is possible, the doc is
@@ -224,6 +220,6 @@ def render(
     renders_collection.insert_one(job)
 
     if can_generate:
-        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection)
+        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection, prewarm=prewarm)
 
     return job

@@ -53,6 +53,33 @@ export function Carousel({ study, onOpen }: { study: Study; onOpen: (image: numb
     targetRef.current = current + delta; animate();
   };
 
+  // Wheel / trackpad moves the carousel only while the cursor is over a garment image's box;
+  // anywhere else the page scrolls normally. Touch drag is handled by the pointer handlers below.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    let acc = 0;
+    let lockUntil = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return; // pinch-zoom
+      const imgs = stage.querySelectorAll<HTMLElement>(".strip-item .image-frame img");
+      const over = Array.from(imgs).some((img) => {
+        const r = img.getBoundingClientRect();
+        return event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+      });
+      if (!over) return;
+      event.preventDefault();
+      const d = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const px = event.deltaMode === 1 ? d * 16 : event.deltaMode === 2 ? d * 400 : d;
+      const now = event.timeStamp;
+      if (now < lockUntil) return; // swallow trackpad inertia right after a step
+      acc += px;
+      if (Math.abs(acc) >= 40) { stage.querySelector<HTMLButtonElement>(acc > 0 ? ".edge-zone--right .carousel-arrow" : ".edge-zone--left .carousel-arrow")?.click(); acc = 0; lockUntil = now + 220; }
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, []);
+
   useEffect(() => () => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     if (hoverTimer.current !== null) window.clearInterval(hoverTimer.current);

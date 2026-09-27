@@ -42,8 +42,33 @@ _cache: dict[tuple, str] = {}
 _cache_lock = threading.Lock()
 
 
-def fallback_explanation(strategy: Strategy) -> str:
-    """Static per-strategy explanation (S-E3). Always non-empty for every ladder strategy."""
+_SANDWICH_SAME_FAMILY = (
+    "The jacket and bottom are both {words}, framing a contrasting top between them."
+)
+
+
+def _loose_sandwich(strategy: Strategy, bottom: dict | None, jacket: dict | None) -> bool:
+    """True for a sandwich whose jacket and bottom share only a family, not a visibly similar
+    color (e.g. black jacket + light-gray jeans): "share a color" would be false there."""
+    if strategy != Strategy.sandwich or not bottom or not jacket:
+        return False
+    from contract.tools.color import delta_e2000
+    from backend.styling import weights as W
+
+    de = delta_e2000(tuple(jacket["primary_color"]["lab"]), tuple(bottom["primary_color"]["lab"]))
+    return de > W.EXPLAIN_SHARED_COLOR_MAX_DELTA_E
+
+
+def fallback_explanation(
+    strategy: Strategy, top: dict | None = None, bottom: dict | None = None, jacket: dict | None = None
+) -> str:
+    """Static per-strategy explanation (S-E3). Always non-empty for every ladder strategy.
+    With the pieces given, a sandwich only claims a shared color when the jacket and bottom
+    colors are actually close (weights.EXPLAIN_SHARED_COLOR_MAX_DELTA_E)."""
+    if _loose_sandwich(strategy, bottom, jacket):
+        fam = jacket["primary_color"]["family"]
+        words = "neutrals" if fam == "achromatic" else f"{fam.replace('_', ' ')} tones"
+        return _SANDWICH_SAME_FAMILY.format(words=words)
     return _FALLBACK[strategy]
 
 
@@ -74,8 +99,8 @@ def explain(strategy: Strategy, top: dict, bottom: dict, jacket: dict | None) ->
     non-empty (S-E4). Prefer `explain_many` when explaining a batch of outfits."""
     from backend import config
 
-    if not config.GEMINI_API_KEY:
-        return fallback_explanation(strategy)
+    if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket):
+        return fallback_explanation(strategy, top, bottom, jacket)
 
     key = _cache_key(strategy, top, bottom, jacket)
     with _cache_lock:
@@ -86,9 +111,9 @@ def explain(strategy: Strategy, top: dict, bottom: dict, jacket: dict | None) ->
     future = _submit(strategy, top, bottom, jacket, key)
     try:
         text = future.result(timeout=config.GEMINI_TIMEOUT_SECONDS)
-        return text if text else fallback_explanation(strategy)
+        return text if text else fallback_explanation(strategy, top, bottom, jacket)
     except Exception:
-        return fallback_explanation(strategy)
+        return fallback_explanation(strategy, top, bottom, jacket)
 
 
 def explain_many(requests: list[tuple[Strategy, dict, dict, dict | None]]) -> list[str]:
@@ -103,11 +128,16 @@ def explain_many(requests: list[tuple[Strategy, dict, dict, dict | None]]) -> li
     from backend.styling import weights as W
 
     results: list[str | None] = [None] * len(requests)
-    pending: dict[Future, tuple[int, Strategy]] = {}
+    pending: dict[Future, int] = {}
+
+    def _fb(i: int) -> str:
+        return fallback_explanation(*requests[i])
 
     for i, (strategy, top, bottom, jacket) in enumerate(requests):
-        if not config.GEMINI_API_KEY:
-            results[i] = fallback_explanation(strategy)
+        # A family-only sandwich stays deterministic: Gemini told "sandwich" tends to claim a
+        # shared color that isn't there.
+        if not config.GEMINI_API_KEY or _loose_sandwich(strategy, bottom, jacket):
+            results[i] = _fb(i)
             continue
 
         key = _cache_key(strategy, top, bottom, jacket)
@@ -118,25 +148,25 @@ def explain_many(requests: list[tuple[Strategy, dict, dict, dict | None]]) -> li
             continue
 
         future = _submit(strategy, top, bottom, jacket, key)
-        pending[future] = (i, strategy)
+        pending[future] = i
 
     if pending:
         done, not_done = wait(pending.keys(), timeout=W.EXPLAIN_BUDGET_SECONDS)
 
         for future in done:
-            i, strategy = pending[future]
+            i = pending[future]
             try:
                 text = future.result()
             except Exception:
                 text = None
-            results[i] = text if text else fallback_explanation(strategy)
+            results[i] = text if text else _fb(i)
 
         for future in not_done:
             # Deliberately not cancelled/joined: it keeps running on the shared executor and,
             # if it eventually succeeds, its `_cache_if_successful` callback still populates
             # the cache for the next request -- but this response does not wait for it.
-            i, strategy = pending[future]
-            results[i] = fallback_explanation(strategy)
+            i = pending[future]
+            results[i] = _fb(i)
 
     return results
 

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import copy
 import json
+import random
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -317,6 +319,118 @@ def test_outfit_id_is_deterministic():
     assert id_a == id_b
     assert id_a != id_c
     assert id_a.startswith("outfit_") and len(id_a) == len("outfit_") + 6
+
+
+# ---------------------------------------------------------------- S4: variety in selection
+
+def _fixture_candidates(items):
+    """Build the same candidate dicts the route builds, straight from a raw items list."""
+    tops = [i for i in items if i["category"] == "tops"]
+    bottoms = [i for i in items if i["category"] == "bottoms"]
+    jackets = [i for i in items if i["category"] == "jackets"]
+    return [
+        {
+            "strategy": strategy, "top": top, "bottom": bottom, "jacket": jacket,
+            "top_id": top["id"], "bottom_id": bottom["id"],
+            "jacket_id": jacket["id"] if jacket else None,
+            "score": max(0.0, min(1.0, score)),
+        }
+        for strategy, top, bottom, jacket, score in generate_candidates(tops, bottoms, jackets)
+    ]
+
+
+def _assert_selection_rules_hold(chosen):
+    strategy_counts = Counter(c["strategy"] for c in chosen)
+    assert all(n <= select_mod.W.OUTFITS_MAX_PER_STRATEGY for n in strategy_counts.values())
+    garment_counts = Counter()
+    for c in chosen:
+        garment_counts[c["top_id"]] += 1
+        garment_counts[c["bottom_id"]] += 1
+    assert all(n <= select_mod.W.OUTFITS_MAX_SHARING_GARMENT for n in garment_counts.values())
+    # best-score-first
+    scores = [c["score"] for c in chosen]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_variety_different_seeds_yield_different_top_outfit(fixture_items):
+    """Two calls with different seeds on the real fixture closet pick different top-ranked
+    outfits when the pool has tied/near-tied alternatives (the fixture closet does: several
+    neutral_anchor combos score exactly 0.9, but only 2 fit under the per-strategy cap)."""
+    candidates = _fixture_candidates(fixture_items)
+    chosen_a = select_mod.select_outfits(candidates, limit=5, rng=random.Random(0))
+    chosen_b = select_mod.select_outfits(candidates, limit=5, rng=random.Random(2))
+    top_a = (chosen_a[0]["top_id"], chosen_a[0]["bottom_id"], chosen_a[0]["jacket_id"])
+    top_b = (chosen_b[0]["top_id"], chosen_b[0]["bottom_id"], chosen_b[0]["jacket_id"])
+    assert top_a != top_b
+    _assert_selection_rules_hold(chosen_a)
+    _assert_selection_rules_hold(chosen_b)
+
+
+def test_variety_selection_rules_hold_for_50_seeds(fixture_items):
+    """Every existing selection rule (S-L1: caps, best-first) holds no matter which seed
+    drives the weighted-random sampling."""
+    candidates = _fixture_candidates(fixture_items)
+    for seed in range(50):
+        chosen = select_mod.select_outfits(candidates, limit=5, rng=random.Random(seed))
+        assert len(chosen) > 0  # S-L3: rung 1 is satisfiable in the fixture closet
+        assert len(chosen) <= 5
+        _assert_selection_rules_hold(chosen)
+
+
+def test_variety_tiny_closet_with_one_valid_outfit_still_returns_it():
+    """A closet with exactly one eligible combo returns that one outfit, for any seed."""
+    top = _item("top_1", NEUTRAL_WHITE)
+    bottom = _item("bottom_1", CHROMATIC_RED)
+    candidates = [
+        {"strategy": strategy, "top_id": top["id"], "bottom_id": bottom["id"],
+         "jacket_id": jacket["id"] if jacket else None, "score": max(0.0, min(1.0, score))}
+        for strategy, _t, _b, jacket, score in generate_candidates([top], [bottom], [])
+    ]
+    for seed in (0, 1, 2, 3, 4):
+        chosen = select_mod.select_outfits(candidates, limit=5, rng=random.Random(seed))
+        assert len(chosen) == 1
+        assert chosen[0]["top_id"] == "top_1"
+        assert chosen[0]["bottom_id"] == "bottom_1"
+
+
+def test_variety_empty_closet_returns_empty_for_any_seed():
+    for seed in (0, 1, 2):
+        assert select_mod.select_outfits([], limit=5, rng=random.Random(seed)) == []
+
+
+def test_variety_avoids_immediate_repeat_when_alternatives_exist(fixture_items):
+    """previous_ids down-weights/excludes last response's combos; with the fixture closet's
+    generous pool, a second call excluding the first call's outfit_ids should not reproduce
+    the same top-ranked outfit every time."""
+    candidates = _fixture_candidates(fixture_items)
+    first = select_mod.select_outfits(candidates, limit=5, rng=random.Random(0))
+    previous_ids = {
+        select_mod.make_outfit_id(c["top_id"], c["bottom_id"], c["jacket_id"]) for c in first
+    }
+    second = select_mod.select_outfits(
+        candidates, limit=5, rng=random.Random(0), previous_ids=previous_ids
+    )
+    second_ids = {
+        select_mod.make_outfit_id(c["top_id"], c["bottom_id"], c["jacket_id"]) for c in second
+    }
+    # excluded outright since the fixture pool has enough fresh alternatives to fill the limit
+    assert not (second_ids & previous_ids)
+    _assert_selection_rules_hold(second)
+
+
+def test_variety_rng_is_injectable_and_route_uses_unseeded_rng():
+    """S4 determinism contract: passing the same seed twice reproduces the same selection."""
+    candidates = [
+        {"strategy": Strategy.neutral_anchor, "top_id": f"top_{i}", "bottom_id": f"bottom_{i}",
+         "jacket_id": None, "score": 0.9 - i * 0.001}
+        for i in range(10)
+    ]
+    chosen_a = select_mod.select_outfits(candidates, limit=2, rng=random.Random(42))
+    chosen_b = select_mod.select_outfits(candidates, limit=2, rng=random.Random(42))
+    assert chosen_a == chosen_b
+
+    from backend.routes import outfits as outfits_route
+    assert isinstance(outfits_route._rng, random.Random)
 
 
 # --------------------------------------------------------------------------- S-E: explanations

@@ -209,6 +209,116 @@ WAISTBAND_EXCLUDE_MAX_ABOVE_FRAC = 0.5
 # more with the pose-free whole-frame fallback (see `segmentation.segment`).
 RECTANGULAR_BBOX_FILL_MAX = 0.90
 
+# V3 edge quality (bottoms re-dispatch, human request): "the bottoms look better. Try and keep
+# edges straight, as they tend to be straight or slightly curved (like the bottom of shorts)."
+# Tunables for backend/vision/edge_regularize.py's waistband/hem regularization (pants/skirt/
+# shorts only) -- see that module's docstring for the algorithm. Tuned by eye against the 9 real
+# bottoms in the closet DB (pants: bottom_6b839f, bottom_e7883c, bottom_62acf6, bottom_6a01d4;
+# shorts: bottom_f91783, bottom_418fa7, bottom_36a1e0, bottom_d7459a, bottom_dd2bea) via
+# backend/vision/scripts/reprocess_item.py, 2026-09-27.
+
+# Minimum number of boundary (x, y) points required to attempt a robust fit at all; below this,
+# the edge is left untouched rather than fit to a handful of points (e.g. a hem barely in frame).
+EDGE_MIN_FIT_POINTS = 8
+
+# Iterative-reweighting rounds for the robust (outlier-rejecting) polynomial fit.
+EDGE_FIT_MAX_ITER = 4
+
+# Floor for the outlier-rejection threshold (median-absolute-deviation-based) so a near-perfect
+# boundary (MAD ~= 0) doesn't reject nearly every point over sub-pixel noise.
+EDGE_OUTLIER_FLOOR_PX = 2.0
+
+# A straight-line fit whose RMSE against the boundary points is at or below this is kept straight
+# (no quadratic escalation) -- most waistbands and jean hems are already this straight once mask
+# noise is robust-fit-averaged out; escalating them to a curve would just be overfitting noise.
+EDGE_LINE_RMSE_OK_PX = 2.5
+
+# Cap on a quadratic fit's own "sag" (its max deviation from the straight line implied by its
+# endpoints, over the observed span) once escalated past EDGE_LINE_RMSE_OK_PX -- keeps the
+# allowed curve "gentle" (a shorts hem's real curve) rather than a wild parabola chasing a couple
+# of noisy points at one end.
+EDGE_MAX_CURVATURE_PX = 8.0
+
+# Give-up gate: if even a (curvature-capped) quadratic fit still misses the boundary by more than
+# this RMSE (measured against every boundary point, not just the fit's own inliers), the boundary
+# is left unregularized rather than forced -- see edge_regularize._fit_edge_curve's docstring.
+# Confirmed against "dark indigo wash Super High-Waisted Baggy Wide-Leg Jean #e2e7ea.webp"
+# (bottom_e7883c): its mask had a pre-existing thin bridge to a stray blob elsewhere in frame, so
+# its top-boundary points spanned most of the canvas height (residual >>100px) -- forcing a fit
+# through that deleted ~65% of the correctly-segmented garment. A clean waistband/hem's robust-fit
+# RMSE is under a few pixels even with real fraying, so this sits with wide margin above that.
+EDGE_GIVE_UP_RMSE_PX = 20.0
+
+# Guards on the pants/shorts leg split (edge_regularize._split_leg_masks): the candidate crotch
+# row must be at or below this fraction of the mask's own height (a real crotch is well below the
+# waistband, never at the very top -- rules out a stray fragment touching the top of the mask,
+# e.g. a hanger clip, from masquerading as an early "split"), and each of the two resulting leg
+# components must be at least this fraction of the mask's total area (rules out a small stray
+# fragment being accepted as a "leg" anywhere in the mask, not just near the top). Confirmed
+# against "livin it up Stretch Curvy Low-Rise Perfect Shortie #99b3be.png" (bottom_dd2bea): an
+# unguarded split found "2 components" at row 0 (a 758px hanger-clip fragment above the waistband
+# vs. the 51909px garment, 1.4% vs. 98.6% of the mask) and fit a hem to the fragment, deleting
+# ~12% of the correctly-segmented shorts when that bogus fit was applied.
+EDGE_LEG_SPLIT_MIN_Y_FRAC = 0.15
+EDGE_LEG_SPLIT_MIN_AREA_FRAC = 0.15
+
+# Tolerance band (pixels, perpendicular... approximated as vertical, which is accurate for these
+# near-horizontal boundaries) around the fitted curve: mask pixels beyond it are trimmed (spikes),
+# gaps within it are filled (small notches/holes from mask noise). Generous enough that a
+# modestly frayed/distressed hem stays slightly irregular rather than perfectly ruled, per the
+# human's ask, while still killing the big spikes/notches that read as "ragged."
+EDGE_TOLERANCE_PX = 4
+
+# Light morphological open+close radius applied to the side seams only (never a line/curve fit --
+# a flared/baggy leg's silhouette is a real shape, not noise). Small on purpose: this is meant to
+# denoise jagged single-pixel contour steps, not reshape the garment.
+EDGE_SIDE_SMOOTH_PX = 1
+
+# Guard on the side-seam smoothing above: max allowed drop in largest-connected-component
+# fraction (see edge_regularize._largest_cc_fraction) before the smoothing pass is rejected in
+# favor of the un-smoothed mask. Catches a high-waisted/baggy garment whose waist-to-leg bridge
+# is only 1-2px wide in the segmenter's own (blocky) mask -- opening at EDGE_SIDE_SMOOTH_PX would
+# sever it, turning one connected garment into two-plus components and failing
+# checks.structural_largest_cc_ratio outright. Confirmed against "dark indigo wash Super
+# High-Waisted Baggy Wide-Leg Jean #e2e7ea.webp" (bottom_e7883c): pre-fix, opening split it into
+# 3 components (largest 60% of total, vs. 90%+ before regularization).
+EDGE_CONNECTIVITY_DROP_TOL = 0.05
+
+# Hard safety net: the regularized mask is clipped to a dilation of the ORIGINAL (pre-
+# regularization) mask by this many pixels, intersected with the clothes category -- it can never
+# grow onto skin/background by more than this, and never past what the segmenter itself called
+# "clothes" to begin with (V-S1 stays intact: skin exclusion is still MediaPipe-category-only).
+EDGE_SAFETY_GROW_PX = 3
+
+# Final stray-fragment cleanup (segmentation._drop_stray_components), run on every candidate
+# mask AFTER edge regularization. Motivated by bottom_dd2bea ("livin it up Stretch Curvy Low-Rise
+# Perfect Shortie #99b3be.png"): two hanger-clip fragments (~1.2-1.4% of the garment each) survived
+# above the waistband, detached from the shorts. Conservative rule: the largest component is always
+# kept, and so is any other component at least STRAY_KEEP_AREA_FRAC of the total mask area
+# (top_8cfe59's stripe bands at 14-27% and jacket_18d0da's open second front panel at 39% are
+# legitimate multi-piece garments, and together with the largest component they define the
+# garment's vertical extent).
+STRAY_KEEP_AREA_FRAC = 0.10
+# A smaller component is still kept when at least this fraction of its own height overlaps that
+# vertical extent (a second leg, a separate sleeve, a strap, dress_49ce0b's 1.3% side-edge sliver);
+# one sitting wholly above the waistband/shoulders or below the hem (dd2bea's clips: 0 overlap)
+# is dropped.
+STRAY_MIN_VERTICAL_OVERLAP_FRAC = 0.5
+
+# Color rule in the same stray step, motivated by top_8cfe59 ("sharp green Whoa So Soft Fitted
+# Sweater Polo"): a 3.6% piece of the model's light-blue denim skirt (median Lab ~80,-7,-2) sat
+# detached inside the top's height near the hem, so the geometric rule kept it. A SMALL piece
+# (below STRAY_KEEP_AREA_FRAC) that survived the geometric rule is still dropped when its median
+# Lab is more than STRAY_COLOR_MIN_DELTA_E (dE2000) from EVERY one of the
+# STRAY_COLOR_DOMINANT_K dominant colors of the large pieces (k=2 so either stripe color
+# survives) AND it reaches into the lowest STRAY_COLOR_BOTTOM_FRAC of the garment's extent or
+# touches the frame edge -- where a neighbouring garment intrudes. Dry run over all 19 saved
+# cutouts (2026-09-27): small pieces measured dE 2.1-6.1 (8cfe59 stripe bands, dress_49ce0b
+# slivers); the denim patch 11.7 was the only one dropped.
+STRAY_COLOR_MIN_DELTA_E = 9.0
+STRAY_COLOR_DOMINANT_K = 2
+STRAY_COLOR_BOTTOM_FRAC = 0.25
+
 # Minimum soft-segmentation confidence to count a pixel as belonging to the chosen person
 # (V-S6: largest person by mask area). Unused since pose-landmarker segmentation masks are not
 # requested (see mp_models.pose_landmarker's docstring); kept for when that mediapipe bug is fixed.
