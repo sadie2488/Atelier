@@ -13,6 +13,7 @@ Usage (repo root, .venv/Scripts/python.exe):
   batch_ingest.py --restore-archive --yes                  (undo: items_archive -> items)
   # 3. ingest (writes a backup automatically first; --preview = analyze only, save nothing)
   batch_ingest.py --ingest <folder> [--manifest m.csv] [--workers 4] [--preview] [--out dir]
+                  [--flatlay]   (garment-alone product photos: backend/vision/flatlay.py)
   #    (--preview writes to <folder>/_atelier_preview; a real run refuses an out dir that
   #     already has results.json)
   # 4. fixes (the out dir defaults to <folder>/_atelier_out)
@@ -151,7 +152,7 @@ def _close_mp():
 
 
 def analyze_one(path: str, category: str, garment_type: str, color: str | None,
-                item_name: str | None) -> dict:
+                item_name: str | None, flatlay: bool = False) -> dict:
     """Runs the POST /items/analyze route function in-process. Returns {"temp_handle": ...}
     or {"error": {...}}. Safe in a worker process (touches only disk under MEDIA_DIR)."""
     import asyncio
@@ -161,7 +162,11 @@ def analyze_one(path: str, category: str, garment_type: str, color: str | None,
         _ATEXIT.append(1)
     import io
     from fastapi import UploadFile
+    from backend.routes import items as items_route
     from backend.routes.items import analyze
+    if flatlay:  # batch-only: garment-alone product photos, no person (backend/vision/flatlay.py)
+        from backend.vision.flatlay import analyze_flatlay_bytes
+        items_route.build_candidates = analyze_flatlay_bytes
 
     p = Path(path)
     up = UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name)
@@ -419,7 +424,7 @@ def _run_analyses(jobs: list[tuple], workers: int, media_dir: str | None) -> lis
 
 
 def ingest(db, folder: Path, manifest: Path, out_dir: Path, workers: int, preview: bool,
-           media_dir: str | None):
+           media_dir: str | None, flatlay: bool = False):
     from backend.vision.session import delete_session
     rows = read_manifest(manifest, folder)
     if (out_dir / "results.json").exists():
@@ -429,8 +434,8 @@ def ingest(db, folder: Path, manifest: Path, out_dir: Path, workers: int, previe
     if not preview:
         backup(db)
     print(f"analyzing {len(rows)} photo(s) with {workers} worker(s)...")
-    jobs = [(r["path"], r["category"], r["garment_type"], r.get("color"), r.get("item_name"))
-            for r in rows]
+    jobs = [(r["path"], r["category"], r["garment_type"], r.get("color"), r.get("item_name"),
+             flatlay) for r in rows]
     analyses = _run_analyses(jobs, workers, media_dir)
 
     results = []
@@ -532,6 +537,8 @@ def main():
     ap.add_argument("--restore-archive", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--yes", action="store_true")
+    ap.add_argument("--flatlay", action="store_true",
+                    help="ingest: photos are flat-lay / cut-out garments with no person")
     ap.add_argument("--sandbox", metavar="DIR", help="use DIR as MEDIA_DIR + a JSON fake DB")
     a = ap.parse_args()
 
@@ -557,7 +564,7 @@ def main():
         manifest = Path(a.manifest) if a.manifest else folder / "manifest.csv"
         preview = a.preview or a.dry_run
         out = Path(a.out) if a.out else folder / ("_atelier_preview" if preview else "_atelier_out")
-        ingest(db, folder, manifest, out, a.workers, preview, media_dir)
+        ingest(db, folder, manifest, out, a.workers, preview, media_dir, a.flatlay)
     if a.replace:
         if a.candidate is None and not a.image:
             ap.error("--replace needs --candidate N and/or --image PATH")
