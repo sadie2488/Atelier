@@ -15,6 +15,9 @@
       "Read(./frontend/.env)",
       "Read(./frontend/.env.local)",
       "Read(./archive/**)"
+    ],
+    "allow": [
+      "Bash(node shot.mjs 390 844 phone)"
     ]
   },
   "hooks": {
