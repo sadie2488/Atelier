@@ -1998,6 +1998,15 @@ def test_phone_page_script_has_no_raw_newline_in_strings():
     import re
     from backend.routes.avatar import _PHONE_HTML
     js = re.search(r"<script>(.*?)</script>", _PHONE_HTML, re.S).group(1)
-    assert '.split("\n")' in js
-    for literal in re.findall(r'"(?:[^"\\n]|\.)*\n', js):
-        raise AssertionError(f"raw newline inside a JS string literal: {literal!r}")
+    assert '.split("\\n")' in js
+    import shutil, subprocess, tempfile, os
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed; the split() assertion above still guards the known bug")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(js)
+    try:
+        r = subprocess.run([node, "--check", f.name], capture_output=True, text=True)
+    finally:
+        os.unlink(f.name)
+    assert r.returncode == 0, r.stderr

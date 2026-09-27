@@ -29,14 +29,15 @@ function SwatchChip({ color, label }: { color: ExtractedColor; label: string }) 
 
 const ATTRIBUTE_LABELS: [string, string][] = [
   ["subcategory", "Type"], ["sleeve", "Sleeve"], ["neckline", "Neckline"], ["material", "Material"], ["fit", "Fit"],
-  ["length", "Length"], ["pattern", "Pattern"], ["closure", "Closure"], ["formality", "Formality"],
+  ["length", "Length"], ["rise", "Rise"], ["pattern", "Pattern"], ["closure", "Closure"], ["formality", "Formality"],
+  ["season", "Season"], ["warmth", "Warmth"],
 ];
 
 // Keys offered for editing per category (plus any other keys the item already has).
 const EDIT_KEYS: Record<Category, string[]> = {
-  tops: ["subcategory", "sleeve", "neckline", "material", "fit", "pattern", "closure", "formality"],
-  bottoms: ["subcategory", "material", "length", "pattern", "closure", "formality"],
-  jackets: ["subcategory", "material", "length", "pattern", "closure", "formality"],
+  tops: ["subcategory", "sleeve", "neckline", "material", "fit", "pattern", "closure", "formality", "season", "warmth"],
+  bottoms: ["subcategory", "material", "length", "rise", "pattern", "closure", "formality", "season", "warmth"],
+  jackets: ["subcategory", "material", "length", "pattern", "closure", "formality", "season", "warmth"],
 };
 const LABEL_OF = Object.fromEntries(ATTRIBUTE_LABELS);
 const clean = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -57,6 +58,9 @@ const OPTIONS: Record<string, string[] | Record<Category, string[]>> = {
   pattern: ["solid", "striped", "plaid", "floral", "print", "textured"],
   closure: ["none", "buttons", "zip", "snaps"],
   formality: ["casual", "smart", "dressy"],
+  rise: ["high", "mid", "low"],
+  season: ["spring", "summer", "fall", "winter", "all-season"],
+  warmth: ["light", "mid", "heavy"],
 };
 const optionsFor = (key: string, cat: Category): string[] => {
   const o = OPTIONS[key];
@@ -70,6 +74,15 @@ type Pick = { choice: string; other: string };
 const initialPick = (value: string, opts: string[]): Pick =>
   !value || value === NA || opts.includes(value) ? { choice: value, other: "" } : { choice: OTHER, other: value };
 const pickValue = (p: Pick) => (p.choice === OTHER ? p.other.trim() : p.choice);
+
+function MainColor({ color }: { color: ExtractedColor }) {
+  return (
+    <div className="detail-color">
+      <span className="swatch-color" style={{ background: color.hex }} aria-hidden="true" />
+      <span className="detail-color-text"><small>Color</small>{color.display_name ?? color.name} <code>{color.hex}</code></span>
+    </div>
+  );
+}
 
 function AttributeList({ attributes }: { attributes?: Item["attributes"] }) {
   const rows = ATTRIBUTE_LABELS.flatMap(([key, label]) => {
@@ -173,6 +186,7 @@ function ItemDetail({ item, onSaved }: { item: Item; onSaved: (updated: Item) =>
         {!editing ? (
           <>
             <div className="detail-name"><h2>{item.retailer_item_name ?? "Untitled piece"}</h2></div>
+            <MainColor color={item.primary_color} />
             <AttributeList attributes={item.attributes} />
           </>
         ) : (

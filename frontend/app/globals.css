@@ -563,3 +563,22 @@ select.attr-input { cursor: pointer; }
   .style-chip { padding: 10px 12px; }
   .style-modes, .save-name { max-width: none; }
 }
+/* ---- stylist: Try On! under the side lists; grouped generate block; jacket toggle hugs the jackets list ---- */
+.stylist-page .stylist-actions { gap: 30px; }
+.stylist-gen-group { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.stylist-gen-group .style-modes { max-width: none; }
+.stylist-lists .jacket-block { gap: 2px; }
+.stylist-lists .try-on-btn { margin-top: 6px; }
+@media (max-width: 700px) {
+  .stylist-page .stylist-actions { gap: 14px; }
+  .stylist-gen-group { width: 100%; }
+  .stylist-page .stylist-lists { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; }
+  .stylist-lists .try-on-btn { flex-basis: 100%; margin-top: 8px; }
+}
+/* ---- closet: main color row at the top of the details ---- */
+.detail-color { display: flex; gap: 10px; align-items: center; margin: 4px 0 2px; }
+.detail-color .swatch-color { width: 28px; height: 28px; }
+.detail-color-text { display: grid; gap: 1px; font: 600 14px var(--font-sans); }
+.detail-color-text small { font: 600 11px var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
+.detail-color-text code { font: 500 12px var(--font-sans); color: var(--muted-foreground); }
+@media (min-width: 701px) { .stylist-lists .jacket-block .swipe-item img { object-position: center top; padding-top: 2px; } }

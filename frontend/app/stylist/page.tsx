@@ -25,7 +25,7 @@ const strategyLabel = (strategy: string) => strategy.replace(/_/g, " ");
 
 // Generate modes: Random sends no style (current behavior); presets send `style`.
 const MODES: { value: OutfitStyle | null; label: string }[] = [
-  { value: null, label: "Random" }, { value: "casual", label: "Casual" }, { value: "going_out", label: "Going out" },
+  { value: null, label: "Random" }, { value: "casual", label: "Casual" }, { value: "going_out", label: "Fancy" },
   { value: "business", label: "Business" }, { value: "monochrome", label: "Monochrome" },
 ];
 
@@ -183,7 +183,7 @@ export default function StylistPage() {
           const toggle = c === "jackets" && (
             <button type="button" className={`jacket-toggle${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => { setNoJacket((v) => !v); clearRender(); }}>{noJacket ? "with jacket" : "no jacket"}</button>
           );
-          if (c === "jackets" && noJacket) return <div className="jacket-block" key={c}><div className="jacket-row">{toggle}</div></div>;
+          if (c === "jackets" && noJacket) return <div className="jacket-block" key={c}>{toggle}</div>;
           const row = (
             <div className="swipe-list" key={c}>
               <button type="button" aria-label={`Previous ${c}`} onClick={() => swipe(c, -1)} disabled={lists[c].length < 2}><ChevronLeft size={18} /></button>
@@ -194,8 +194,9 @@ export default function StylistPage() {
               <button type="button" aria-label={`Next ${c}`} onClick={() => swipe(c, 1)} disabled={lists[c].length < 2}><ChevronRight size={18} /></button>
             </div>
           );
-          return toggle ? <div className="jacket-block" key={c}><div className="jacket-row">{toggle}</div>{row}</div> : row;
+          return toggle ? <div className="jacket-block" key={c}>{toggle}{row}</div> : row;
         })}
+        {!tooSmall && <button type="button" className="stylist-action try-on-btn" onClick={seeOutfit} disabled={busy || !curTop || !curBottom}>Try On!</button>}
       </div>
 
       <div className="stylist-avatar">
@@ -216,14 +217,13 @@ export default function StylistPage() {
           <div className="stylist-note"><p>Your closet needs at least a top and a bottom to build an outfit.</p><Link href="/add-item" className="stylist-action">add item</Link></div>
         ) : (
           <>
-            <div className="style-modes" role="radiogroup" aria-label="Outfit mode">
-              {MODES.map((m) => (
-                <button key={m.label} type="button" role="radio" aria-checked={mode === m.value} className={`style-chip${mode === m.value ? " is-on" : ""}`} disabled={busy} onClick={() => setMode(m.value)}>{m.label}</button>
-              ))}
-            </div>
-            <div className="stylist-action-pair">
+            <div className="stylist-gen-group">
+              <div className="style-modes" role="radiogroup" aria-label="Outfit mode">
+                {MODES.map((m) => (
+                  <button key={m.label} type="button" role="radio" aria-checked={mode === m.value} className={`style-chip${mode === m.value ? " is-on" : ""}`} disabled={busy} onClick={() => setMode(m.value)}>{m.label}</button>
+                ))}
+              </div>
               <button type="button" className="stylist-action" onClick={generate} disabled={busy}>{busy ? "styling…" : "generate outfit"}</button>
-              <button type="button" className="stylist-action" onClick={seeOutfit} disabled={busy || !curTop || !curBottom}>see outfit</button>
             </div>
           </>
         )}
