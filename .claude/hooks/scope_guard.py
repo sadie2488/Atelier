@@ -71,6 +71,7 @@ FROZEN = [
     "fixtures/golden/**",
 ]
 
+WORKTREE_PREFIX = re.compile(r"^\.claude/worktrees/[^/]+/")
 GIT_CALL = re.compile(r"(^|[;&|]\s*)git(\s|$)", re.IGNORECASE)
 
 
@@ -91,6 +92,11 @@ def normalize(path: str) -> str:
         path = path.replace("\\", "/")
     while path.startswith("./"):
         path = path[2:]
+    # An agent in an isolated worktree (<repo>/.claude/worktrees/<name>/...) is judged by the
+    # path inside its own checkout, not as a write under the PM-only .claude/ tree.
+    m = WORKTREE_PREFIX.match(path)
+    if m:
+        path = path[m.end():]
     return path
 
 
