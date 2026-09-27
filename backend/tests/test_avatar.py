@@ -372,6 +372,57 @@ def test_render_endpoint_local_composite_and_cache(client, memory_db, monkeypatc
     assert get_resp.json() == job2
 
 
+def test_scan_stores_avatar_images_in_durable_media_store(client, memory_db, monkeypatch, tmp_path, memory_media):
+    """A7 durable storage: the wireframe, avatar, and source photo saved by scan must all reach
+    the durable media store (backend/media_store.py), not just local disk."""
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    body = _scan_ok(monkeypatch, client, memory_db)
+    avatar_id = body["avatar_id"]
+    for suffix in ("_wireframe.png", ".png", "_photo.png"):
+        key = f"avatars/{avatar_id}{suffix}"
+        assert memory_media[key] == (tmp_path / "avatars" / f"{avatar_id}{suffix}").read_bytes()
+
+
+def test_render_stores_local_composite_in_durable_media_store(client, memory_db, monkeypatch, tmp_path, memory_media):
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    avatar = _scan_ok(monkeypatch, client, memory_db)
+    _seed_items(memory_db, tmp_path)
+
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    assert resp.status_code == 200, resp.text
+    render_id = resp.json()["render_id"]
+
+    key = f"renders/{render_id}_local.png"
+    assert memory_media[key] == (tmp_path / "renders" / f"{render_id}_local.png").read_bytes()
+
+
+def test_render_loads_item_cutout_from_durable_store_when_local_missing(
+    client, memory_db, monkeypatch, tmp_path, memory_media,
+):
+    """A fresh deploy or another machine may not have the item cutout locally -- render must
+    fall back to durable storage instead of failing."""
+    from backend import media_store
+
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    avatar = _scan_ok(monkeypatch, client, memory_db)
+    _seed_items(memory_db, tmp_path)
+
+    top_path = tmp_path / "items" / "top_aaaaaa.png"
+    media_store.put("items/top_aaaaaa.png", top_path.read_bytes())
+    top_path.unlink()
+    assert not top_path.is_file()
+
+    body = {"avatar_id": avatar["avatar_id"], "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb", "jacket_id": None}
+    resp = client.post("/api/render", json=body)
+    assert resp.status_code == 200, resp.text
+    job = resp.json()
+    assert job["local_url"].startswith("/media/renders/")
+    assert (tmp_path / job["local_url"][len("/media/"):]).is_file()
+    # load_media caches the fetched cutout back to local disk for next time.
+    assert top_path.is_file()
+
+
 def test_render_unknown_avatar_is_not_found(client, memory_db):
     resp = client.post("/api/render", json={
         "avatar_id": "avatar_ffffff", "top_id": "top_aaaaaa", "bottom_id": "bottom_bbbbbb",

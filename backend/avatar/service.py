@@ -121,7 +121,7 @@ def settle_if_stale(job: dict, renders_collection) -> dict:
 
 
 def _load_item_layer(item_doc: dict) -> tuple[Image.Image, dict, GarmentType]:
-    cutout = media.load_from_url(item_doc["cutout_url"])
+    cutout = media.load_media(item_doc["cutout_url"])
     anchors = item_doc.get("anchors") or {}
     garment_type = GarmentType(item_doc["garment_type"])
     return cutout, anchors, garment_type
@@ -142,7 +142,7 @@ def render(
     """
     rig = rig_from_dict(avatar_doc["rig"])
     canvas_size = (avatar_doc["canvas_w"], avatar_doc["canvas_h"])
-    avatar_img = media.load_from_url(avatar_doc["avatar_url"])
+    avatar_img = media.load_media(avatar_doc["avatar_url"])
 
     bottom = _load_item_layer(bottom_doc)
     top = _load_item_layer(top_doc)

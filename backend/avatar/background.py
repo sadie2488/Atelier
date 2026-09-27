@@ -47,12 +47,12 @@ def _run(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collect
     try:
         is_dress = GarmentType(top_doc["garment_type"]) == GarmentType.dress
 
-        person_img = media.load_from_url(avatar_doc["source_photo_url"]).convert("RGB")
-        top_img = media.load_from_url(top_doc["cutout_url"])
+        person_img = media.load_media(avatar_doc["source_photo_url"]).convert("RGB")
+        top_img = media.load_media(top_doc["cutout_url"])
         # A dress still has a bottom slot (A-R5: "no exclusion logic") and it is sent too --
         # A-R7 chose an instruction-following model precisely so it can layer them correctly.
-        bottom_img = media.load_from_url(bottom_doc["cutout_url"])
-        jacket_img = media.load_from_url(jacket_doc["cutout_url"]) if jacket_doc is not None else None
+        bottom_img = media.load_media(bottom_doc["cutout_url"])
+        jacket_img = media.load_media(jacket_doc["cutout_url"]) if jacket_doc is not None else None
 
         generated = gen_client.generate_tryon(person_img, top_img, bottom_img, jacket_img, is_dress)
 
