@@ -21,7 +21,8 @@ Screens: `/scan`, `/closet`, `/stylist`, `/insights`. Backend behavior is in
 - [ ] Flip the hanger-menu **demo avatar** switch on and off once to confirm it works; leave it off.
 - [ ] Phone hotspot ready; notifications silenced.
 - [ ] **For the judge's scan:** lanyards and badges off, a plain background behind them if
-      possible, and they stand head to feet inside the outline.
+      possible, and they stand head to feet inside the outline, **arms held slightly away from the
+      body** (arms flat at the sides get "lift your arms slightly away").
 
 Placeholders to fill once chosen: demo avatar `<DEMO_AVATAR_ID>`; outfit 1 `<...>`; outfit 2 `<...>`.
 
