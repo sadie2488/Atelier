@@ -95,8 +95,8 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .strip-item:hover { background: none; }
 /* Garment cutouts are transparent PNGs; the frame itself stays transparent so no colored box shows
    behind them — only a soft drop shadow for depth, not a filled card. */
-.image-frame { display: block; height: min(29vh, 300px); aspect-ratio: 3/4; overflow: hidden; background: transparent; filter: drop-shadow(0 18px 30px oklch(0.2 0.02 55 / 35%)); transform-origin: 50% 0; rotate: var(--swing, 0deg); }
-.image-frame img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.image-frame { display: block; height: min(29vh, 300px); aspect-ratio: 3/4; background: transparent; transform-origin: 50% 0; rotate: var(--swing, 0deg); }
+.image-frame img { display: block; width: 100%; height: 100%; object-fit: contain; padding: 6%; box-sizing: border-box; filter: drop-shadow(0 10px 14px color-mix(in oklab, var(--foreground) 22%, transparent)); pointer-events: none; }
 .strip-item.is-selected { z-index: 20; }
 .strip-item.is-selected .image-frame { animation: hero-select 640ms cubic-bezier(0.22, 1, 0.3, 1) both; }
 @keyframes hero-select {
@@ -244,11 +244,13 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .cutout-pick { display: grid; justify-items: center; gap: 18px; }
 .cutout-row { display: grid; grid-template-columns: repeat(3, minmax(0, 180px)); gap: 14px; }
 .cutout { display: grid; gap: 8px; padding: 8px; background: transparent; border: 1px solid transparent; cursor: pointer; font: 600 13px var(--font-sans); color: var(--foreground); border-radius: 2px; }
-.cutout.is-on { border-color: var(--primary); background: color-mix(in oklab, var(--background) 50%, transparent); }
-.cutout-img { aspect-ratio: 3 / 4; overflow: hidden; display: grid; place-items: center; background: color-mix(in oklab, var(--background) 70%, transparent); }
-.cutout-img img { width: 100%; height: 100%; object-fit: cover; }
-.cutout--tight .cutout-img img { transform: scale(1.25); clip-path: inset(8% round 4px); }
-.cutout--balanced .cutout-img img { transform: scale(1.05); clip-path: inset(4% round 4px); }
+.cutout.is-on { border-color: transparent; outline: 1px solid var(--primary); outline-offset: 2px; background: transparent; }
+.cutout:hover:not(.is-on) { box-shadow: 0 10px 24px -18px var(--foreground); }
+/* Cutout candidates are transparent PNGs; no fill behind them so they float on the page. */
+.cutout-img { aspect-ratio: 3 / 4; overflow: hidden; display: grid; place-items: center; background: transparent; padding: 6%; }
+.cutout-img img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 10px 14px color-mix(in oklab, var(--foreground) 22%, transparent)); }
+.cutout--tight .cutout-img img { transform: none; }
+.cutout--balanced .cutout-img img { transform: scale(.94); }
 .cutout--generous .cutout-img img { transform: scale(.88); }
 @media (max-width: 700px) {
   .item-form { grid-template-columns: 1fr; max-width: 420px; }
@@ -263,12 +265,12 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .archive-content > .state-panel { margin: auto; }
 .add-fab { position: fixed; right: 20px; top: 16px; z-index: 50; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 16px; font: 600 13px var(--font-sans); letter-spacing: .05em; color: var(--primary-foreground); background: var(--primary); text-decoration: none; border-radius: 999px; }
 .detail-panel { position: relative; display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 320px); gap: 26px; padding: 26px; background: var(--background); border-radius: 2px; max-width: 92vw; max-height: 90svh; overflow: auto; }
-.detail-panel > img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+.detail-panel > img { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; padding: 6%; box-sizing: border-box; background: transparent; filter: drop-shadow(0 10px 14px color-mix(in oklab, var(--foreground) 22%, transparent)); }
 .detail-close { position: absolute; top: 8px; right: 8px; }
 .detail-info { display: grid; align-content: start; gap: 14px; }
 .detail-info h2 { font: italic 400 26px/1.15 var(--font-display); margin: 0; }
 .detail-kicker { font: 600 12px var(--font-sans); letter-spacing: .06em; color: var(--muted-foreground); text-transform: uppercase; margin: 0; }
-.color-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.color-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .swatch { display: flex; gap: 10px; align-items: center; font: 600 14px var(--font-sans); }
 .swatch small { display: block; font-weight: 500; font-size: 11px; color: var(--muted-foreground); letter-spacing: .04em; }
 .swatch-color { width: 44px; height: 44px; flex: none; border: 1px solid var(--border); border-radius: 2px; }
@@ -289,7 +291,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .swipe-list button:hover:not(:disabled) { opacity: 1; }
 .swipe-list button:disabled { opacity: .2; }
 .swipe-item { display: grid; justify-items: center; gap: 4px; width: 92px; }
-.swipe-item img { width: 92px; height: 120px; object-fit: cover; }
+.swipe-item img { width: 92px; height: 120px; object-fit: contain; padding: 6px; box-sizing: border-box; filter: drop-shadow(0 10px 14px color-mix(in oklab, var(--foreground) 22%, transparent)); }
 .swipe-item small { font: 600 11px var(--font-sans); letter-spacing: .05em; color: var(--muted-foreground); }
 .swipe-empty { width: 92px; height: 120px; display: grid; place-items: center; font: 600 11px var(--font-sans); color: var(--muted-foreground); border: 1px dashed var(--border); }
 .stylist-avatar { display: grid; justify-items: center; gap: 14px; }
@@ -316,7 +318,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 
 /* ---- Port overrides ---- */
 .flow-page { height: 100svh; overflow-y: auto; }
-.image-frame img, .swipe-item img, .detail-panel > img, .item-thumb, .cutout-img img { object-fit: contain; }
+.item-thumb { object-fit: contain; }
 .avatar-render, .render-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .render-img--generated { animation: fadein .8s ease both; }
 .render-frame--pending::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--primary); animation: pulse 1.4s ease-in-out infinite; pointer-events: none; }
