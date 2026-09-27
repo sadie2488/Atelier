@@ -406,6 +406,12 @@ to detected shoulder, hip, and ankle positions.
 **A-B3 — The visible avatar is line art drawn from the same landmarks.** Clean strokes, no
 photographic body. Deterministic, fast, and unambiguously stylized — which is what makes flat
 garment cutouts read as intentional rather than broken.
+**Superseded (human decision, 2026-09-26; FRONTEND_REQUESTS #7, OPEN_QUESTIONS #3):** the
+visible avatar (`avatar_url`) is the user's **real body**, cut out of the scan photo head to
+feet on a transparent 1:2 canvas. The line-art figure remains as `wireframe_url` (the render
+loading state) and as the fallback when person segmentation fails. The local composite places
+garments over the real-body cutout; the user's own scan clothes may show beneath them, which is
+accepted because the generated try-on replaces it.
 
 **A-B4 — Light fill inside the wireframe outline**, in the sampled skin tone. A wireframe is
 open; without a fill, background shows through at the neckline and between the legs.
