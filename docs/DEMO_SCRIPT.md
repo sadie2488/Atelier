@@ -28,6 +28,24 @@ referenced throughout is documented in `coordination/BACKEND_API.md` and `ARCHIT
 
 ---
 
+## Demo-safe outfits (try-ons already generated and checked by eye)
+
+These appear instantly with the full Gemini try-on. Stick to them on stage.
+
+| Avatar | Outfit | Pieces |
+|---|---|---|
+| Sadie (`avatar_f709dc`) or Lalitha (`avatar_56501c`) | neutral anchor | black off-shoulder dress over the blue shorts (`dress_6b8577` + `bottom_f91783`) |
+| Sadie or Lalitha | neutral anchor + jacket | same, plus the black leather blazer (`jacket_18d0da`) |
+| Sadie or Lalitha | everyday neutral base | Fair Isle cardigan + dark wide-leg jeans (`top_9a92f8` + `bottom_e7883c`) |
+| **Lalitha only** | sandwich | leather blazer over the olive/cream striped cami, black jeans (`jacket_18d0da` + `top_2dd815` + `bottom_6b839f`) |
+| **Lalitha only** | sandwich | same blazer and cami over the brown sweat shorts (`bottom_36a1e0`) |
+
+**Avoid on Sadie's avatar:** the two sandwich outfits (the jacket fails the color check, so
+only the instant preview shows), and the mint striped sweater with the dark jeans
+(`top_8cfe59` + `bottom_e7883c`; the try-on swapped the jeans for sweatpants).
+
+---
+
 ## The script
 
 **0:00 — Open on `/closet`.**

@@ -11,6 +11,7 @@ Newest first. Commit hashes refer to `main` unless noted.
 
 | # | Reported | Issue | Owner | Status | Conclusion |
 |---|---|---|---|---|---|
+| 21 | 2026-09-27 | Sadie's try-on fails for the two sandwich outfits (leather blazer) | Avatar | **Not successful** (worked around) | Both new generations on `avatar_f709dc` with `jacket_18d0da` failed the color check (ΔE 37.6 and 23.6); the same outfits on `avatar_56501c` pass and look correct. Demo plan: show sandwich outfits on Lalitha only (docs/DEMO_SCRIPT.md "Demo-safe outfits"). Not investigated further before the demo. |
 | 20 | 2026-09-27 | Scan should auto-capture when the user is standing right | PM → frontend | **In progress** (queued) | Starts after the scan fix is verified live (#19, #12). Needs the `@mediapipe/tasks-vision` npm package in the browser (approved by the human). Will change `/scan` logic only; the redesign keeps its look. |
 | 19 | 2026-09-27 | Live site: scan and add-garment return 500 (`libEGL.so.1` missing) | PM | **Successful** | Docker image lacked MediaPipe's Linux graphics libraries. Hotfix `811f0a9` installs `libegl1 libgles2`. Verified live: scan returns proper pose rejections, analyze returns 3 candidates in ~3 s. Rollback tag `demo-stable` = 9b8fbc7. |
 | 18 | 2026-09-27 | Frontend redesign (look only, no functional change) | Frontend laptop | **In progress** | Rules in BACKEND_API.md "Frontend redesign: rules". Branch `frontend/redesign`; PM reviews and merges; freeze before rehearsal. |
