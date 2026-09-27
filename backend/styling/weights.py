@@ -97,3 +97,10 @@ NEUTRAL_CHROMA_MAX = NEUTRAL_CHROMA_MAX
 # not finished by the deadline falls back to its static per-strategy text instead of blocking
 # the response.
 EXPLAIN_BUDGET_SECONDS = 2.5
+
+# ---- insights (backend/styling/insights.py, GET /api/insights/palette): closet-wide
+# summary heuristics that lean on the pair scorer, so their tunables live here too (S-T1).
+
+# Threshold above which a synthetic top-family/bottom pairing counts as "pairs well" for the
+# "Adding a <family> top would pair with N of your bottoms" observation.
+INSIGHTS_PAIR_GOOD_THRESHOLD = 0.6

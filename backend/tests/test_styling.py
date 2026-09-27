@@ -459,6 +459,77 @@ def test_generate_respects_limit(client, fake_db, fixture_items):
     assert len(body["outfits"]) <= 1
 
 
+# ---------------------------------------------------------------------------- I: insights
+
+from contract.schemas import PaletteInsights
+from backend.styling.insights import compute_insights
+
+
+def test_insights_empty_closet_is_contract_valid(client, fake_db):
+    resp = client.get("/api/insights/palette")
+    assert resp.status_code == 200
+    body = resp.json()
+    validated = PaletteInsights.model_validate(body)
+    assert validated.item_count == 0
+    assert validated.neutral_share == 0.0
+    assert validated.families == []
+    assert validated.swatches == []
+    assert validated.insights == []
+    assert validated.most_versatile == []
+    assert len(validated.missing_families) > 0  # every colors.json family is "missing"
+
+
+def test_insights_fixture_closet_is_contract_valid(client, fake_db, fixture_items):
+    fake_db["items"] = _FakeCollection(fixture_items)
+    resp = client.get("/api/insights/palette")
+    assert resp.status_code == 200
+    body = resp.json()
+    validated = PaletteInsights.model_validate(body)
+    assert validated.item_count == len(fixture_items)
+    assert len(validated.swatches) == len(fixture_items)
+    newest_first = sorted(fixture_items, key=lambda it: it["created_at"], reverse=True)
+    assert [s["item_id"] for s in body["swatches"]] == [it["id"] for it in newest_first]
+    assert len(validated.insights) <= 6
+    assert len(validated.most_versatile) <= 3
+
+
+class _FakeCollectionWithAggregate(_FakeCollection):
+    """Same as the local find-only fake, but also supports the family-count aggregation
+    pipeline the route tries first (both the aggregate and Python-fallback paths must
+    produce identical `families` output)."""
+
+    def aggregate(self, pipeline):
+        assert pipeline == [{"$group": {"_id": "$primary_color.family", "count": {"$sum": 1}}}]
+        counts: dict[str, int] = {}
+        for doc in self._docs:
+            fam = doc["primary_color"]["family"]
+            counts[fam] = counts.get(fam, 0) + 1
+        return [{"_id": fam, "count": n} for fam, n in counts.items()]
+
+
+def test_insights_aggregate_and_fallback_paths_agree(client, fake_db, fixture_items):
+    """The route tries db['items'].aggregate(...) for family counts and falls back to
+    counting in Python from find() when the collection doesn't support it (the shared test
+    fake never does). Both must produce the same `families` output for the same closet."""
+    fake_db["items"] = _FakeCollection(fixture_items)  # no aggregate -> Python fallback
+    fallback_body = client.get("/api/insights/palette").json()
+
+    fake_db["items"] = _FakeCollectionWithAggregate(fixture_items)  # aggregate path
+    aggregate_body = client.get("/api/insights/palette").json()
+
+    assert aggregate_body["families"] == fallback_body["families"]
+    assert aggregate_body["item_count"] == fallback_body["item_count"]
+
+
+def test_compute_insights_pure_empty_list():
+    """compute_insights is a pure function: no DB, no route needed."""
+    result = compute_insights([])
+    PaletteInsights.model_validate(result)
+    assert result["item_count"] == 0
+    assert result["families"] == []
+    assert result["missing_families"]  # every family missing
+
+
 # ------------------------------------------------------------------------- expectations.json
 
 def _load_expectations():
