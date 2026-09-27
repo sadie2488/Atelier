@@ -11,6 +11,9 @@ Newest first. Commit hashes refer to `main` unless noted.
 
 | # | Reported | Issue | Owner | Status | Conclusion |
 |---|---|---|---|---|---|
+| 29 | 2026-09-27 | Striped top top_8cfe59 carries a light-blue patch from another garment | Vision | **In progress** | Conservative color rule for small disconnected pieces near the garment's edge; lands only if a dry run over all 19 cutouts drops nothing legitimate. |
+| 28 | 2026-09-27 | Hanger clips left floating above bottom_dd2bea | Vision | **Successful** | Disconnected pieces outside the garment's vertical extent are dropped (large pieces and in-extent pieces kept); only dd2bea changed, eval unchanged (08777fc, on main). |
+| 27 | 2026-09-27 | Bottoms: keep hems and waistbands straight | Vision | **Successful** | Robust edge fit with outlier rejection and a safety clip; all 9 bottoms reprocessed, the 62acf6 hem gap filled, no fabric lost, eval unchanged (c6cc863, on main). |
 | 26 | 2026-09-27 | Garments sit too low on the avatar (FE-2) | Avatar | **In progress** | Rise detection from waistband vs hip landmarks, default mid-rise; tops aligned to shoulders. Then local previews regenerated for all avatars. |
 | 25 | 2026-09-27 | "Generate outfit" should give different outfits each time | Styling | **Successful** | Weighted random pick among top-scoring candidates (scorer unchanged, all 12 expectations pass), avoids repeating the last result; 4 distinct top outfits in 5 real calls (f9f6ac3, on main). |
 | 24 | 2026-09-27 | Nano Banana must not edit the face | PM | **Successful** | Prompt v3: the face must not be edited or modified in any way (no retouching, re-lighting, reshaping or swapping), full-length framing with the whole face visible (d7bfc6c, on main). Identity is also being checked after generation (#22). |
