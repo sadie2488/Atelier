@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧵 Atelier
+# Atelier
 
 ### Your closet, styled by color theory.
 
@@ -23,11 +23,11 @@ then see the look on an avatar built from a scan of you.
 
 <br>
 
-**[How it works](#-how-it-works)** ·
-**[Features](#-features)** ·
-**[Quick start](#-quick-start)** ·
-**[API](#-api-at-a-glance)** ·
-**[Architecture](#-architecture)**
+**[How it works](#how-it-works)** ·
+**[Features](#features)** ·
+**[Quick start](#quick-start)** ·
+**[API](#api-at-a-glance)** ·
+**[Architecture](#architecture)**
 
 </div>
 
@@ -39,20 +39,20 @@ then see the look on an avatar built from a scan of you.
 
 ---
 
-## ✨ Features
+## Features
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 📸 Garment ingest
+### Garment ingest
 Upload a retail photo and get **three candidate cutouts** (tight, balanced, generous), isolated
 from the model with pose-guided segmentation. Nothing is saved until you pick one.
 
 </td>
 <td width="50%" valign="top">
 
-### 🎨 Real color measurement
+### Real color measurement
 K-means clustering in **CIELAB** finds each garment's primary and secondary color. Colors stay
 numeric; "neutral" is computed from chroma, never guessed from a name.
 
@@ -61,14 +61,14 @@ numeric; "neutral" is computed from chroma, never guessed from a name.
 <tr>
 <td width="50%" valign="top">
 
-### 🧠 Color-theory outfits
+### Color-theory outfits
 Named strategies (*neutral anchor*, *everyday-neutral base*, *analogous*, *complementary*)
 feed a **pure, deterministic scorer**. Up to five ranked outfits, each with a one-line reason.
 
 </td>
 <td width="50%" valign="top">
 
-### 🪞 Try it on
+### Try it on
 A scan becomes a **line-art avatar** drawn from your pose. Outfits appear instantly as a local
 composite, then a **Gemini-generated try-on** swaps in once it passes a color check.
 
@@ -83,17 +83,17 @@ composite, then a **Gemini-generated try-on** swaps in once it passes a color ch
 
 ---
 
-## 🔄 How it works
+## How it works
 
 ```mermaid
 flowchart LR
-    A["📸 Retail photo"] --> B["🔍 Vision<br/>pose + segmentation"]
-    B --> C["✂️ 3 cutouts"]
-    C -->|user picks one| D[("👗 Closet<br/>MongoDB")]
-    D --> E["🎨 Styling<br/>color-theory strategies"]
-    E --> F["✨ Ranked outfits"]
-    F --> G["🪞 Avatar<br/>local composite"]
-    G -.->|background| H["🤖 Gemini try-on<br/>+ color check"]
+    A["Retail photo"] --> B["Vision<br/>pose + segmentation"]
+    B --> C["3 cutouts"]
+    C -->|user picks one| D[("Closet<br/>MongoDB")]
+    D --> E["Styling<br/>color-theory strategies"]
+    E --> F["Ranked outfits"]
+    F --> G["Avatar<br/>local composite"]
+    G -.->|background| H["Gemini try-on<br/>+ color check"]
     H -.->|swap in| G
 ```
 
@@ -116,20 +116,20 @@ flowchart LR
 
 ---
 
-## 🛠 Tech stack
+## Tech stack
 
 | Layer | Technology |
 |:--|:--|
-| 🖥 **Frontend** | Next.js (App Router) · TypeScript · Tailwind CSS |
-| ⚙️ **Backend** | Python 3.12 · FastAPI · Pydantic |
-| 👁 **Computer vision** | MediaPipe (pose, multiclass segmentation, face detection) · OpenCV · scikit-image · scikit-learn |
-| 🤖 **Generative AI** | Google Gemini (image try-on, outfit explanations) |
-| 🗄 **Data** | MongoDB Atlas (items, avatars, renders) · GridFS for media |
-| ☁️ **Hosting** | Vercel (frontend) · DigitalOcean App Platform (backend, Docker) |
+| **Frontend** | Next.js (App Router) · TypeScript · Tailwind CSS |
+| **Backend** | Python 3.12 · FastAPI · Pydantic |
+| **Computer vision** | MediaPipe (pose, multiclass segmentation, face detection) · OpenCV · scikit-image · scikit-learn |
+| **Generative AI** | Google Gemini (image try-on, outfit explanations) |
+| **Data** | MongoDB Atlas (items, avatars, renders) · GridFS for media |
+| **Hosting** | Vercel (frontend) · DigitalOcean App Platform (backend, Docker) |
 
 ---
 
-## 🚀 Quick start
+## Quick start
 
 > [!IMPORTANT]
 > You need **Python 3.12** (MediaPipe has no 3.14 build), **Node.js 20+**, a **MongoDB Atlas**
@@ -137,7 +137,7 @@ flowchart LR
 > billing enabled).
 
 <details open>
-<summary><b>⚙️ Backend</b></summary>
+<summary><b>Backend</b></summary>
 <br>
 
 ```bash
@@ -150,14 +150,14 @@ cp backend/.env.example backend/.env    # fill in MONGODB_URI and GEMINI_API_KEY
 .venv/Scripts/python.exe -m uvicorn backend.main:app --port 8000
 ```
 
-✅ `http://localhost:8000/api/health` → `{"status":"ok","db":"ok"}`
+`http://localhost:8000/api/health` → `{"status":"ok","db":"ok"}`
 
 MediaPipe model files download automatically on first use.
 
 </details>
 
 <details>
-<summary><b>👗 Demo closet (optional)</b></summary>
+<summary><b>Demo closet (optional)</b></summary>
 <br>
 
 Load the sample garments in `fixtures/images/` into your database. Safe to re-run.
@@ -170,7 +170,7 @@ Load the sample garments in `fixtures/images/` into your database. Safe to re-ru
 </details>
 
 <details open>
-<summary><b>🖥 Frontend</b></summary>
+<summary><b>Frontend</b></summary>
 <br>
 
 ```bash
@@ -189,27 +189,27 @@ npm run dev        # http://localhost:3000
 
 ---
 
-## 📡 API at a glance
+## API at a glance
 
 All routes live under `/api`. Errors are always `{"error": {"code": "...", "message": "..."}}`.
 
-| | Method | Path | What it does |
-|:-:|:--|:--|:--|
-| 💚 | `GET` | `/api/health` | Backend and database status |
-| 📸 | `POST` | `/api/items/analyze` | Garment photo (multipart) → 3 candidate cutouts, nothing saved |
-| 💾 | `POST` | `/api/items/save` | Keep one candidate → saved item |
-| 🗑 | `POST` | `/api/items/reject` | Discard all three candidates |
-| 👗 | `GET` | `/api/items` | The closet, newest first (`?category=tops\|bottoms\|jackets`) |
-| 🔎 | `GET` | `/api/items/{slug}` | One item with its measured colors |
-| ✨ | `POST` | `/api/outfits/generate` | Up to 5 ranked outfits with strategy and explanation |
-| 🧍 | `POST` | `/api/avatar/scan` | Full-body photo (multipart) → avatar, or a specific pose correction |
-| 🪪 | `GET` | `/api/avatar/{avatar_id}` | One avatar |
-| 🪞 | `POST` | `/api/render` | Outfit on avatar → instant local composite |
-| 🔁 | `GET` | `/api/render/{render_id}` | Poll until `done` (swap in `generated_url`) or `failed` (keep local) |
+| Method | Path | What it does |
+|:--|:--|:--|
+| `GET` | `/api/health` | Backend and database status |
+| `POST` | `/api/items/analyze` | Garment photo (multipart) → 3 candidate cutouts, nothing saved |
+| `POST` | `/api/items/save` | Keep one candidate → saved item |
+| `POST` | `/api/items/reject` | Discard all three candidates |
+| `GET` | `/api/items` | The closet, newest first (`?category=tops\|bottoms\|jackets`) |
+| `GET` | `/api/items/{slug}` | One item with its measured colors |
+| `POST` | `/api/outfits/generate` | Up to 5 ranked outfits with strategy and explanation |
+| `POST` | `/api/avatar/scan` | Full-body photo (multipart) → avatar, or a specific pose correction |
+| `GET` | `/api/avatar/{avatar_id}` | One avatar |
+| `POST` | `/api/render` | Outfit on avatar → instant local composite |
+| `GET` | `/api/render/{render_id}` | Poll until `done` (swap in `generated_url`) or `failed` (keep local) |
 
-📘 Full behavior: [`coordination/BACKEND_API.md`](coordination/BACKEND_API.md) ·
-🧩 Types: [`contract/schema.json`](contract/schema.json) ·
-🧪 Examples: [`contract/fixtures/api/`](contract/fixtures/api/)
+Full behavior: [`coordination/BACKEND_API.md`](coordination/BACKEND_API.md) ·
+Types: [`contract/schema.json`](contract/schema.json) ·
+Examples: [`contract/fixtures/api/`](contract/fixtures/api/)
 
 <details>
 <summary><b>The two-stage render, visualized</b></summary>
@@ -239,7 +239,7 @@ sequenceDiagram
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 ```
 backend/
@@ -261,17 +261,17 @@ tools/                 checks and maintenance scripts
 
 **Design principles**
 
-- 🎯 **One contract.** Backend and frontend both build against `contract/`; types are generated
+- **One contract.** Backend and frontend both build against `contract/`; types are generated
   from its JSON Schema.
-- 🔢 **Colors are numbers.** Lab values everywhere; names are a lookup, and chroma decides
+- **Colors are numbers.** Lab values everywhere; names are a lookup, and chroma decides
   what's neutral.
-- 🧪 **Pure scoring.** No I/O in the scorer: same closet, same outfits.
-- 🛟 **The local path always works.** Generation is an enhancement that may silently fail.
-- 👗 **A dress is a top.** It lives in the tops list and layers over a bottom.
+- **Pure scoring.** No I/O in the scorer: same closet, same outfits.
+- **The local path always works.** Generation is an enhancement that may silently fail.
+- **A dress is a top.** It lives in the tops list and layers over a bottom.
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 .venv/Scripts/python.exe -m pytest -q                  # backend suite, fully offline
@@ -284,25 +284,23 @@ touches the network.
 
 ---
 
-## ⚠️ Known limitations
+## Known limitations
 
-| | Limitation |
-|:-:|:--|
-| 🧍 | **Garments must be worn by a model.** Ingest locates the garment from the model's pose, so the upper body must be in frame; tight waist-down crops and flat-lays get a clear rejection. |
-| 🦓 | **Striped and two-tone garments** report the larger base color as primary (a green-striped cream sweater reads as cream), with the accent as secondary. |
-| 👖 | **Light-wash denim** sits on the blue/gray boundary and may be named gray. |
-| ⏱ | **Generated try-on** takes ~10 s and uses API quota; each outfit combination is generated once and cached. |
+- **Garments must be worn by a model.** Ingest locates the garment from the model's pose, so the upper body must be in frame; tight waist-down crops and flat-lays get a clear rejection.
+- **Striped and two-tone garments** report the larger base color as primary (a green-striped cream sweater reads as cream), with the accent as secondary.
+- **Light-wash denim** sits on the blue/gray boundary and may be named gray.
+- **Generated try-on** takes ~10 s and uses API quota; each outfit combination is generated once and cached.
 
 ---
 
-## 🔒 Privacy
+## Privacy
 
 The avatar scan and try-on send the user's photo to Google's Gemini API, and the app says so
 before capture. Face photos and garment images are stored in the project's MongoDB database.
 
 ---
 
-## 👥 Team
+## Team
 
 > **TODO:** names and roles.
 
