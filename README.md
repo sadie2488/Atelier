@@ -72,18 +72,18 @@ outfits, each with a one-line reason.
 <td width="50%" valign="top">
 
 ### Try it on
-A scan becomes an avatar built from **your own body**, cut out of the photo head to feet (a
-line-art figure covers the loading state and any fallback). Tap **See it on me** and outfits
-appear instantly as a local composite, then a **Gemini-generated try-on** swaps in once it
-passes a color check.
+A quick scan becomes an avatar built from **your own body**, cut out of the photo head to feet.
+Put pieces in the outfit tray and tap **See it on me**: **Nano Banana 2** dresses the avatar
+(~10-15 s, instant if already generated), and the result is shown only after a garment-color and
+face check. After a scan, the likely outfits are pre-generated in the background.
 
 </td>
 </tr>
 </table>
 
 > [!TIP]
-> **Nothing ever breaks in front of the user.** If generation is slow, fails, or runs out of
-> quota, the local composite simply stays on screen. Explanations fall back to built-in text
+> **Nothing wrong ever reaches the screen.** A try-on that fails its checks shows a calm
+> "try again" note, and retry really regenerates. Explanations fall back to built-in text
 > within 2.5 seconds.
 
 ---
