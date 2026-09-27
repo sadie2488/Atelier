@@ -1,9 +1,11 @@
 """A3/A5 visual-polish preview: render the avatar + a local composite for real photos, so a human
 can eyeball the new silhouette/limb/face drawing without going through pose validation (the two
 model photos currently fail the arm-angle check while new photos are retaken -- see the lane
-report). This calls landmark detection, rig, and drawing directly, the same way
-`backend/avatar/service.py:scan()` does minus the `validate_pose` step. Debug aid only, not part
-of the API; never copies the source photos anywhere outside media/_preview/.
+report). This calls landmark detection, decode/downscale, rig, face, skin, and drawing the same
+way `backend/avatar/service.py:scan()` does, except that it bypasses only the arm-angle rejection
+from `pose_validation.validate()` -- every other rejection (missing/low-visibility landmarks)
+still aborts the preview for that photo. Debug aid only, not part of the API; never copies the
+source photos anywhere outside media/_preview/.
 """
 import sys
 from pathlib import Path
@@ -15,9 +17,11 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from backend.avatar import compositing, face as face_mod, media, skin
-from backend.avatar.draw import draw_avatar, draw_wireframe
+from backend.avatar.draw import draw_avatar
 from backend.avatar.landmarks import detect_landmarks
+from backend.avatar.pose_validation import ARMS_MESSAGE, validate as validate_pose
 from backend.avatar.rig import canvas_bbox, compute_rig, translate
+from backend.avatar.service import MAX_LONG_SIDE, _downscale
 from contract.enums import GarmentType
 
 MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
@@ -29,9 +33,8 @@ MODEL_PHOTOS = {
     "lalitha": MODELS_DIR / "model.lalitha.jpeg",
 }
 
-# Two real cutouts already on disk under media/items/ (no bottom_* exists there yet, so this
-# pairs a top with a jacket -- still exercises real-asset placement and the jacket-over-top part
-# of the A-R4 draw order). Anchors are placed by hand since these fixture PNGs carry none.
+# Two real cutouts already on disk under media/items/. Anchors are placed by hand since these
+# fixture PNGs carry none.
 TOP_ITEM = {
     "cutout_url": "/media/items/top_26a465.png",
     "garment_type": GarmentType.shirt,
@@ -40,12 +43,13 @@ TOP_ITEM = {
         "left_hip": [0.85, 0.62], "right_hip": [0.15, 0.62],
     },
 }
-JACKET_ITEM = {
-    "cutout_url": "/media/items/jacket_634a40.png",
-    "garment_type": GarmentType.jacket,
+BOTTOM_ITEM = {
+    "cutout_url": "/media/items/bottom_0aad1c.png",
+    "garment_type": GarmentType.pants,
     "anchors": {
-        "left_shoulder": [0.88, 0.05], "right_shoulder": [0.12, 0.05],
-        "left_hip": [0.90, 0.70], "right_hip": [0.10, 0.70],
+        "left_hip": [0.85, 0.05], "right_hip": [0.15, 0.05],
+        "left_knee": [0.80, 0.55], "right_knee": [0.20, 0.55],
+        "left_ankle": [0.75, 0.97], "right_ankle": [0.25, 0.97],
     },
 }
 
@@ -56,7 +60,10 @@ def _load_layer(item: dict):
 
 
 def build_one(name: str, photo_path: Path) -> None:
+    # Same decode path as service._decode_image: EXIF-correct, then downscale to the same
+    # MAX_LONG_SIDE everything else in the pipeline uses.
     img = ImageOps.exif_transpose(Image.open(photo_path)).convert("RGB")
+    img = _downscale(img)
     rgb = np.asarray(img)
 
     landmarks = detect_landmarks(rgb)
@@ -64,41 +71,42 @@ def build_one(name: str, photo_path: Path) -> None:
         print(f"{name}: no person detected, skipping")
         return
 
-    # Deliberately skip pose_validation.validate() -- these two photos are known to fail the
-    # arm-angle check (15-20 degrees vs the 25 degree rule) while new photos are retaken. This is
-    # a drawing-only preview, not a scan-acceptance test.
+    # Bypass ONLY the arm-angle rejection -- these two photos are known to fail it (15-20 degrees
+    # vs the 25 degree rule) while new photos with arms out are retaken. ARM_ANGLE_MIN_DEG stays
+    # untouched in pose_validation.py; any other rejection reason (e.g. a landmark out of frame)
+    # still aborts this preview, same as a real scan.
+    rejection = validate_pose(landmarks)
+    if rejection is not None and rejection[1] != ARMS_MESSAGE:
+        print(f"{name}: pose rejected ({rejection[1]}), skipping")
+        return
+    if rejection is not None:
+        print(f"{name}: bypassing arm-angle rejection for this debug preview (real photos pending retake)")
+
     rig = compute_rig(landmarks)
     x0, y0, x1, y1 = canvas_bbox(rig)
     w, h = max(1, round(x1 - x0)), max(1, round(y1 - y0))
     local = translate(rig, -x0, -y0)
 
-    # These are full-body photos (arms-length-ish framing), so the face is a small fraction of
-    # the frame -- too small for blaze_face_short_range to find directly (confirmed: returns
-    # None on the raw image). Crop around the rig's own head estimate first, purely to give the
-    # same detector a bigger, more face-filling region to work with; face.py itself is untouched.
-    hx, hy = rig.head_center
-    pad = rig.head_radius * 3.0
-    ih, iw = rgb.shape[:2]
-    cx0, cy0 = max(0, int(hx - pad)), max(0, int(hy - pad))
-    cx1, cy1 = min(iw, int(hx + pad)), min(ih, int(hy + pad))
-    head_crop = rgb[cy0:cy1, cx0:cx1]
+    # Production face-detection path (A-B6/A9): crop around the rig's own head estimate first --
+    # on a full-body photo the face is too small for the detector to find directly -- then map
+    # the box back to full-frame coordinates. Falls back to no composited face (the plain drawn
+    # head) if the crop also finds nothing; there is no lower rung (A-B8).
+    face_box = face_mod.detect_face_box_near(rgb, rig.head_center, rig.head_radius)
+    face_img = face_mod.crop_face(rgb, face_box) if face_box is not None else None
+    face_patch_center = ((face_box[0] + face_box[2]) / 2, (face_box[1] + face_box[3]) / 2) if face_box else None
 
-    face_box = face_mod.detect_face_box(head_crop) if head_crop.size else None
-    face_img = face_mod.crop_face(head_crop, face_box) if face_box else None
-    face_patch_center = (
-        (cx0 + (face_box[0] + face_box[2]) / 2, cy0 + (face_box[1] + face_box[3]) / 2) if face_box else None
-    )
     skin_rgb = skin.sample_skin_tone(rgb, landmarks, face_patch_center)
+    print(f"{name}: sampled skin hex #{skin_rgb[0]:02x}{skin_rgb[1]:02x}{skin_rgb[2]:02x}, face_detected={face_box is not None}")
 
     avatar_img = draw_avatar(local, (w, h), skin_rgb, face_img)
     avatar_img.save(PREVIEW_DIR / f"polish_avatar_{name}.png")
 
     top = _load_layer(TOP_ITEM)
-    jacket = _load_layer(JACKET_ITEM)
-    composed = compositing.composite_outfit(avatar_img, (w, h), local, bottom=None, top=top, jacket=jacket)
+    bottom = _load_layer(BOTTOM_ITEM)
+    composed = compositing.composite_outfit(avatar_img, (w, h), local, bottom=bottom, top=top, jacket=None)
     composed.save(PREVIEW_DIR / f"polish_render_{name}.png")
 
-    print(f"{name}: wrote polish_avatar_{name}.png and polish_render_{name}.png ({w}x{h})")
+    print(f"{name}: wrote polish_avatar_{name}.png and polish_render_{name}.png ({w}x{h}, downscaled to <= {MAX_LONG_SIDE}px long side)")
 
 
 def main():

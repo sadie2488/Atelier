@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend import config
 from contract.enums import ErrorCode, GarmentType, MAX_UPLOAD_BYTES, RenderStatus
@@ -24,6 +24,21 @@ from .landmarks import LM_INDEX, detect_landmarks
 from .pose_validation import validate as validate_pose
 from .rig import canvas_bbox, compute_rig, rig_from_dict, rig_to_dict, translate
 
+# A phone camera frame can be 4000-6000px on its long side. Landmarking, drawing (draw.py's own
+# SUPERSAMPLE_MAX_DIM=1200 already assumes a canvas well under this), the stored source photo,
+# and the Gemini upload only need demo resolution -- downscaling once here, right after decode,
+# bounds latency and payload size everywhere downstream instead of every consumer guessing.
+MAX_LONG_SIDE = 1600
+
+
+def _downscale(img: Image.Image, max_long_side: int = MAX_LONG_SIDE) -> Image.Image:
+    long_side = max(img.width, img.height)
+    if long_side <= max_long_side:
+        return img
+    scale = max_long_side / long_side
+    new_size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    return img.resize(new_size, Image.LANCZOS)
+
 
 def _decode_image(data: bytes) -> np.ndarray:
     if len(data) > MAX_UPLOAD_BYTES:
@@ -31,9 +46,12 @@ def _decode_image(data: bytes) -> np.ndarray:
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
-        img = img.convert("RGB")
+        # Phone photos carry EXIF orientation; without correcting it first, landmarks, the rig,
+        # and the composited face all land rotated relative to what the person actually sees.
+        img = ImageOps.exif_transpose(img).convert("RGB")
     except (UnidentifiedImageError, OSError) as e:
         raise AvatarError(ErrorCode.unsupported_image, "Could not read the uploaded photo.") from e
+    img = _downscale(img)
     return np.asarray(img)
 
 
@@ -58,7 +76,7 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
     canvas_w, canvas_h = max(1, round(x1 - x0)), max(1, round(y1 - y0))
     rig_local = translate(rig, -x0, -y0)
 
-    face_box = face.detect_face_box(rgb)
+    face_box = face.detect_face_box_near(rgb, rig.head_center, rig.head_radius)
     face_img = None
     face_patch_center = None
     if face_box is not None:

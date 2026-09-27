@@ -18,7 +18,7 @@ import pytest
 from PIL import Image
 
 from backend import config
-from backend.avatar import background, compositing, gen_client, ids, service, verify
+from backend.avatar import background, compositing, face, gen_client, ids, service, skin, verify
 from backend.avatar.pose_validation import ARMS_MESSAGE, STEP_BACK_MESSAGE, validate
 from backend.avatar.rig import compute_rig, translate, canvas_bbox
 from backend.avatar.draw import draw_avatar, draw_wireframe
@@ -261,6 +261,7 @@ def _scan_ok(monkeypatch, client, memory_db, image_bytes=None):
     monkeypatch.setattr("backend.avatar.service.detect_landmarks", lambda rgb: _good_landmarks())
     monkeypatch.setattr("backend.avatar.service.face", type("F", (), {
         "detect_face_box": staticmethod(lambda rgb: None),
+        "detect_face_box_near": staticmethod(lambda rgb, head_center, head_radius: None),
     }))
     resp = client.post(
         "/api/avatar/scan",
@@ -703,3 +704,125 @@ def test_fresh_pending_render_is_not_reaped(client, memory_db, monkeypatch, tmp_
     assert get_resp.json()["status"] == "pending"
 
     _wait_for_settled(memory_db["renders"], render_id)
+
+
+# ---------------------------------------------------------------- A9 robustness: real-photo fixes
+
+def test_face_detect_near_crops_and_maps_box_back(monkeypatch):
+    """A9/A-B6: a full-body frame is too small for direct face detection (see face.py docstring)
+    -- detect_face_box_near must crop around the rig's head estimate and translate whatever box
+    the detector finds in that crop back into full-frame pixel coordinates."""
+    head_center = (100.0, 80.0)
+    head_radius = 20.0
+    pad = head_radius * 3.0  # detect_face_box_near's default pad_factor
+    rgb = np.zeros((600, 800, 3), dtype=np.uint8)
+
+    seen_crop_shapes = []
+
+    def fake_detect(crop):
+        seen_crop_shapes.append(crop.shape)
+        return (5, 5, 15, 15)  # a box in the CROP's own coordinates
+
+    monkeypatch.setattr(face, "detect_face_box", fake_detect)
+    box = face.detect_face_box_near(rgb, head_center, head_radius)
+
+    expected_cx0 = max(0, int(head_center[0] - pad))
+    expected_cy0 = max(0, int(head_center[1] - pad))
+    assert box == (expected_cx0 + 5, expected_cy0 + 5, expected_cx0 + 15, expected_cy0 + 15)
+    assert len(seen_crop_shapes) == 1
+    # The crop actually shrank the search region -- not the whole frame handed to the detector.
+    assert seen_crop_shapes[0][0] < rgb.shape[0] and seen_crop_shapes[0][1] < rgb.shape[1]
+
+
+def test_face_detect_near_returns_none_when_crop_finds_nothing(monkeypatch):
+    """A-B8: no rung below this one -- a miss on the crop means no composited face, not a crash
+    or a second full-frame attempt."""
+    monkeypatch.setattr(face, "detect_face_box", lambda crop: None)
+    rgb = np.zeros((600, 800, 3), dtype=np.uint8)
+    assert face.detect_face_box_near(rgb, (100.0, 80.0), 20.0) is None
+
+
+def test_downscale_caps_long_side_of_large_photo():
+    """A9: an uncapped phone photo must be brought down to MAX_LONG_SIDE before it reaches
+    landmarking, drawing, storage, or generation."""
+    big = Image.new("RGB", (4000, 3000), (100, 120, 140))
+    scaled = service._downscale(big)
+    assert max(scaled.size) <= service.MAX_LONG_SIDE
+    assert abs(scaled.width / scaled.height - big.width / big.height) < 0.01  # aspect preserved
+
+
+def test_downscale_leaves_small_photo_untouched():
+    small = Image.new("RGB", (400, 300), (10, 20, 30))
+    scaled = service._downscale(small)
+    assert scaled.size == small.size
+
+
+def test_decode_image_downscales_and_corrects_orientation():
+    """End to end through _decode_image: a large photo comes out at or under MAX_LONG_SIDE."""
+    big = Image.new("RGB", (3200, 2400), (50, 60, 70))
+    buf = io.BytesIO()
+    big.save(buf, format="PNG")
+    rgb = service._decode_image(buf.getvalue())
+    assert max(rgb.shape[:2]) <= service.MAX_LONG_SIDE
+
+
+def test_skin_sampling_uses_segmenter_skin_category_median_in_lab(monkeypatch):
+    """A-B5: skin tone comes from the segmenter's skin-category pixels, as the median in Lab --
+    not a mean in RGB, and not the (very different) non-skin background."""
+    rgb = np.zeros((4, 4, 3), dtype=np.uint8)
+    # Row 0: "skin" pixels -- two similar mid-tones plus a shadow and a blown highlight, both of
+    # which the median-in-Lab step must exclude.
+    rgb[0, 0] = (200, 150, 130)
+    rgb[0, 1] = (202, 152, 131)
+    rgb[0, 2] = (0, 0, 0)
+    rgb[0, 3] = (255, 255, 255)
+    # Rows 1-3: background -- a completely different color that must never leak into the result.
+    rgb[1:, :] = (10, 200, 10)
+
+    category_mask = np.zeros((4, 4), dtype=np.uint8)
+    category_mask[0, :] = 2  # body-skin (see mp_models.py's category list)
+
+    class _FakeMask:
+        def numpy_view(self):
+            return category_mask
+
+    class _FakeResult:
+        category_mask = _FakeMask()
+
+    class _FakeSegmenter:
+        def segment(self, mp_image):
+            return _FakeResult()
+
+    monkeypatch.setattr(skin, "image_segmenter", lambda: _FakeSegmenter())
+
+    r, g, b = skin.sample_skin_tone(rgb, {"nose": (0.0, 0.0, 0.99)})
+
+    # Close to the two clean mid-tone skin pixels, not dragged toward black, white, or green.
+    assert abs(r - 201) <= 3 and abs(g - 151) <= 3 and abs(b - 130) <= 3
+
+
+def test_skin_sampling_falls_back_to_face_region_when_no_skin_pixels(monkeypatch):
+    """A-B8: segmentation finding no skin (e.g. long sleeves and pants) falls back to the face
+    region, which is always available. The face patch (a 12x12 window, see skin._PATCH) must be
+    fully inside the "face" colored block, or the sample would pick up the surrounding color."""
+    rgb = np.full((30, 30, 3), (10, 200, 10), dtype=np.uint8)  # clothes/background everywhere
+    rgb[9:21, 9:21] = (220, 180, 150)  # a face-colored block big enough to fully contain the patch
+
+    category_mask = np.zeros((30, 30), dtype=np.uint8)  # all background -- no skin category present
+
+    class _FakeMask:
+        def numpy_view(self):
+            return category_mask
+
+    class _FakeResult:
+        category_mask = _FakeMask()
+
+    class _FakeSegmenter:
+        def segment(self, mp_image):
+            return _FakeResult()
+
+    monkeypatch.setattr(skin, "image_segmenter", lambda: _FakeSegmenter())
+
+    r, g, b = skin.sample_skin_tone(rgb, {"nose": (15.0, 15.0, 0.99)}, face_patch_center=(15.0, 15.0))
+    assert (r, g, b) != (10, 200, 10)
+    assert abs(r - 220) <= 3 and abs(g - 180) <= 3 and abs(b - 150) <= 3

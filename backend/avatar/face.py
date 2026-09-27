@@ -10,7 +10,14 @@ from .mp_models import face_detector
 
 
 def detect_face_box(rgb: np.ndarray) -> Optional[tuple[int, int, int, int]]:
-    """-> (x0, y0, x1, y1) pixel box of the largest detected face, or None."""
+    """-> (x0, y0, x1, y1) pixel box of the largest detected face, or None.
+
+    Full-frame detection. On a standing, full-body scan photo the face is a small fraction of
+    the frame -- often too small for blaze_face_short_range (a short-range, face-filling
+    detector) to find at all. `detect_face_box_near` below is the production path for a
+    full-body frame; call this directly only when the image is already face-scale (a crop, or a
+    portrait photo).
+    """
     import mediapipe as mp
 
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
@@ -20,6 +27,38 @@ def detect_face_box(rgb: np.ndarray) -> Optional[tuple[int, int, int, int]]:
     best = max(result.detections, key=lambda d: d.bounding_box.width * d.bounding_box.height)
     bb = best.bounding_box
     return (bb.origin_x, bb.origin_y, bb.origin_x + bb.width, bb.origin_y + bb.height)
+
+
+def detect_face_box_near(
+    rgb: np.ndarray,
+    head_center: tuple[float, float],
+    head_radius: float,
+    pad_factor: float = 3.0,
+) -> Optional[tuple[int, int, int, int]]:
+    """A-B6/A9: the production face-detection path for a full-body scan photo. Crops a generous,
+    face-filling region around the rig's own head estimate (from pose landmarks -- nose plus
+    shoulder geometry, see rig.py), runs `detect_face_box` on that crop, and maps the resulting
+    box back to full-frame pixel coordinates.
+
+    Returns None if the crop is degenerate or the detector still finds nothing in it -- the
+    caller (service.scan) then falls back to the landmark-derived head geometry alone (the
+    drawn head circle, no composited photo); there is no further face-detection rung below this
+    one (A-B8).
+    """
+    h, w = rgb.shape[:2]
+    hx, hy = head_center
+    pad = head_radius * pad_factor
+    cx0, cy0 = max(0, int(hx - pad)), max(0, int(hy - pad))
+    cx1, cy1 = min(w, int(hx + pad)), min(h, int(hy + pad))
+    if cx1 <= cx0 or cy1 <= cy0:
+        return None
+
+    crop = rgb[cy0:cy1, cx0:cx1]
+    box = detect_face_box(crop)
+    if box is None:
+        return None
+    bx0, by0, bx1, by1 = box
+    return (cx0 + bx0, cy0 + by0, cx0 + bx1, cy0 + by1)
 
 
 def crop_face(rgb: np.ndarray, box: tuple[int, int, int, int], pad_fraction: float = 0.35) -> Image.Image:
