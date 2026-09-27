@@ -38,6 +38,7 @@ export type Name = string;
 export type Family = string;
 export type IsNeutral = boolean;
 export type EverydayNeutral = boolean;
+export type DisplayName = string | null;
 export type AvatarId = string;
 export type WireframeUrl = string;
 export type AvatarUrl = string;
@@ -164,6 +165,7 @@ export interface ExtractedColor {
   family: Family;
   is_neutral: IsNeutral;
   everyday_neutral: EverydayNeutral;
+  display_name?: DisplayName;
 }
 /**
  * GET /avatar/{avatar_id}

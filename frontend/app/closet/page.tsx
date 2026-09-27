@@ -15,7 +15,7 @@ function SwatchChip({ color, label }: { color: ExtractedColor; label: string }) 
   return (
     <div className="swatch">
       <span className="swatch-color" style={{ background: color.hex }} />
-      <span><small>{label}</small>{color.name}{color.is_neutral ? <em className="neutral-tag">neutral</em> : color.everyday_neutral ? <em className="neutral-tag">everyday neutral</em> : null}</span>
+      <span><small>{label}</small>{color.display_name ?? color.name}{color.is_neutral ? <em className="neutral-tag">neutral</em> : color.everyday_neutral ? <em className="neutral-tag">everyday neutral</em> : null}</span>
     </div>
   );
 }
@@ -105,9 +105,8 @@ export default function ClosetPage() {
               <h2>{detail.retailer_item_name ?? "Untitled piece"}</h2>
               <div className="color-compare">
                 <SwatchChip color={detail.primary_color} label="extracted" />
-                <div className="swatch"><span className="swatch-color swatch-color--text">Aa</span><span><small>retailer says</small>{detail.retailer_color ?? "—"}</span></div>
+                {detail.secondary_color && <SwatchChip color={detail.secondary_color} label="secondary" />}
               </div>
-              {detail.secondary_color && <SwatchChip color={detail.secondary_color} label="secondary" />}
             </div>
           </div>
         </div>

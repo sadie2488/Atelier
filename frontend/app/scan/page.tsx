@@ -16,6 +16,24 @@ type Step =
 
 const SCAN_ERRORS = new Set(["pose_rejected", "no_person_detected", "unsupported_image"]);
 
+const SCAN_INSTRUCTIONS = [
+  "Stand 6–8 feet back so your whole body — head to feet — is inside the outline",
+  "Face the camera",
+  "Arms slightly away from your body",
+  "Good, even light",
+];
+
+// The backend may separate several actionable reasons with "\n" (pose_rejected, no_person_detected,
+// unsupported_image). Render each as its own bullet instead of a single run-on sentence.
+function RejectionReasons({ message }: { message: string }) {
+  const lines = message.split("\n").map((line) => line.trim()).filter(Boolean);
+  return (
+    <ul className="reject-reasons">
+      {(lines.length ? lines : [message]).map((line, i) => <li key={i}>{line}</li>)}
+    </ul>
+  );
+}
+
 export default function ScanPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>({ s: "consent" });
@@ -119,8 +137,10 @@ export default function ScanPage() {
             {camError && <p className="camera-fallback">Camera unavailable — upload a full-length photo instead.</p>}
             <PoseFigure className="pose-overlay" />
             {count !== null && <div className="countdown" role="status" aria-live="assertive">{count}</div>}
-            <p className="camera-hint">Stand facing forward, arms slightly away from your body</p>
           </div>
+          <ul className="scan-instructions">
+            {SCAN_INSTRUCTIONS.map((line) => <li key={line}>{line}</li>)}
+          </ul>
           <div className="camera-controls">
             <button type="button" className="ghost-btn" onClick={() => fileRef.current?.click()} disabled={count !== null}>upload</button>
             <button type="button" className="shutter" aria-label={count === null ? "Start 5 second countdown" : "Cancel countdown"} onClick={toggleCountdown} disabled={camError} />
@@ -136,8 +156,8 @@ export default function ScanPage() {
         </div>
       )}
       {step.s === "rejected" && (
-        <StatePanel title="Let's try that again" actions={<><button type="button" className="solid-btn" onClick={() => setStep({ s: "camera" })}>retry</button>{backupButton}</>}>
-          {step.message}
+        <StatePanel title="Let's try that again" tone="alert" actions={<><button type="button" className="solid-btn solid-btn--lg" onClick={() => setStep({ s: "camera" })}>Try again</button>{backupButton}</>}>
+          <RejectionReasons message={step.message} />
         </StatePanel>
       )}
       {step.s === "success" && (

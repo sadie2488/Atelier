@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 
-export function StatePanel({ title, children, actions }: { title: string; children?: ReactNode; actions?: ReactNode }) {
+export function StatePanel({ title, children, actions, tone }: { title: string; children?: ReactNode; actions?: ReactNode; tone?: "alert" }) {
   return (
-    <div className="state-panel" role="status">
+    <div className={`state-panel${tone === "alert" ? " state-panel--alert" : ""}`} role="status">
       <h2 className="state-title">{title}</h2>
-      {children && <p className="state-body">{children}</p>}
+      {children && <div className="state-body">{children}</div>}
       {actions && <div className="state-actions">{actions}</div>}
     </div>
   );

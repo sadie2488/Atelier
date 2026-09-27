@@ -15,12 +15,16 @@ const toFront = (list: Item[], id: string | null | undefined) => {
   return hit ? [hit, ...list.filter((g) => g.id !== hit.id)] : list;
 };
 
+// Plain-words label for a strategy code, e.g. "neutral_anchor" -> "neutral anchor".
+const strategyLabel = (strategy: string) => strategy.replace(/_/g, " ");
+
 export default function StylistPage() {
   const avatar = useStoredAvatar();
   const itemsQ = useItems();
   const [lists, setLists] = useState<Lists | null>(null);
   const [idx, setIdx] = useState<Record<Category, number>>({ tops: 0, bottoms: 0, jackets: 0 });
   const [explanation, setExplanation] = useState<string | null>(null);
+  const [why, setWhy] = useState<{ strategy: string; score: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<"none" | "failed" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
@@ -89,6 +93,7 @@ export default function StylistPage() {
     if (!n) return;
     setIdx((p) => ({ ...p, [c]: (((p[c] ?? 0) + d) % n + n) % n }));
     setExplanation(null);
+    setWhy(null);
     clearRender();
   };
 
@@ -102,6 +107,7 @@ export default function StylistPage() {
       setIdx({ tops: 0, bottoms: 0, jackets: 0 });
       setNoJacket(!best.jacket_id);
       setExplanation(best.explanation);
+      setWhy({ strategy: best.strategy, score: best.score });
       // Render right away for the top-ranked outfit just positioned at index 0.
       requestRender(best.top_id, best.bottom_id, best.jacket_id ?? null);
     } catch { setNotice("failed"); }
@@ -133,6 +139,7 @@ export default function StylistPage() {
           <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
         </div>
         {explanation && <p className="stylist-explain">{explanation}</p>}
+        {why && <p className="stylist-why">why this works: {strategyLabel(why.strategy)} &middot; {Math.round(why.score * 100)}%</p>}
       </div>
 
       <div className="stylist-actions">
