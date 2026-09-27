@@ -22,7 +22,7 @@ from backend import config
 from backend.db import get_db
 from backend.main import app
 from backend.vision.checks import _left_right_balance_ok, _no_straight_boundary_run
-from backend.vision.session import TMP_MEDIA_DIR, delete_session
+from backend.vision.session import delete_session, tmp_media_dir
 from contract.enums import Category
 from contract.schemas import AnalyzeResponse, ErrorResponse, Item, ItemListResponse
 
@@ -144,9 +144,10 @@ def test_save_persists_item_with_correct_slug_and_cutout(client, fake_db):
     assert fake_db["items"].find_one({"id": item.id}) is not None
 
     # V-E2/V-A3: nothing left under the temp handle after save
-    assert not (TMP_MEDIA_DIR / f"{handle}_0.png").exists()
-    assert not (TMP_MEDIA_DIR / f"{handle}_1.png").exists()
-    assert not (TMP_MEDIA_DIR / f"{handle}_2.png").exists()
+    tmp_dir = tmp_media_dir()
+    assert not (tmp_dir / f"{handle}_0.png").exists()
+    assert not (tmp_dir / f"{handle}_1.png").exists()
+    assert not (tmp_dir / f"{handle}_2.png").exists()
 
     _cleanup_media(slug=item.id)
 
@@ -224,8 +225,9 @@ def test_reject_persists_nothing_and_logs(client, fake_db, monkeypatch, tmp_path
     assert len(entry["candidates"]) == 3
 
     # nothing retained
+    tmp_dir = tmp_media_dir()
     for i in range(3):
-        assert not (TMP_MEDIA_DIR / f"{handle}_{i}.png").exists()
+        assert not (tmp_dir / f"{handle}_{i}.png").exists()
 
 
 # --------------------------------------------------------------------------------- list/get

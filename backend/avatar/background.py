@@ -56,18 +56,15 @@ def _run(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collect
 
         generated = gen_client.generate_tryon(person_img, top_img, bottom_img, jacket_img, is_dress)
 
-        garments = [
-            (GarmentType(top_doc["garment_type"]), top_doc["primary_color"]),
-            (GarmentType(bottom_doc["garment_type"]), bottom_doc["primary_color"]),
-        ]
-        if jacket_doc is not None:
-            garments.append((GarmentType(jacket_doc["garment_type"]), jacket_doc["primary_color"]))
-
+        jacket_arg = (GarmentType(jacket_doc["garment_type"]), jacket_doc) if jacket_doc is not None else None
         ok, reason = verify.verify_colors(
             np.asarray(generated),
             avatar_doc["source_landmarks"],
             (avatar_doc["source_w"], avatar_doc["source_h"]),
-            garments,
+            top=(GarmentType(top_doc["garment_type"]), top_doc),
+            bottom=(GarmentType(bottom_doc["garment_type"]), bottom_doc),
+            jacket=jacket_arg,
+            render_id=render_id,
         )
         if not ok:
             logger.info("avatar: render %s failed verification: %s", render_id, reason)

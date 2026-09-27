@@ -22,15 +22,23 @@ HEX_RE = re.compile(r"#([0-9a-fA-F]{6})")
 
 
 def infer_garment_type(fname: str) -> GarmentType:
+    """Mirrors backend/vision/scripts/seed_closet.py's infer_category_garment (kept in sync so
+    this eval script scores fixtures under the same garment_type the real closet was seeded
+    with -- it previously fell through jacket/blazer/coat fixtures to "shirt", scoring the
+    leather blazer with the wrong pose region entirely)."""
     low = fname.lower()
     if "dress" in low:
         return GarmentType.dress
-    if "jean" in low:
+    if "jean" in low or "pant" in low:
         return GarmentType.pants
     if "skirt" in low:
         return GarmentType.skirt
     if "short" in low:
         return GarmentType.shorts
+    if "jacket" in low or "blazer" in low:
+        return GarmentType.jacket
+    if "coat" in low:
+        return GarmentType.coat
     return GarmentType.shirt   # cardigan/sweater/top/polo/cami/etc.
 
 
@@ -86,11 +94,15 @@ def main():
             from contract.tools.color import hex_to_lab
             true_family = nearest_color(hex_to_lab(true_hex))[1]
             got_family = balanced["primary_color"]["family"]
+            got_secondary_family = balanced["secondary_color"]["family"] if balanced["secondary_color"] else None
             total_scored += 1
-            match = true_family == got_family
+            # V-C6 measurement note: a hit is the labelled family matching the extracted
+            # primary OR secondary color (previously this only checked primary).
+            match = true_family in (got_family, got_secondary_family)
             agree += int(match)
             print(f"{'OK  ' if match else 'MISS'} {f.name[:60]:60} true={true_family:12} "
-                  f"got={got_family:12} hex={balanced['primary_color']['hex']} dt={dt:.2f}s")
+                  f"got={got_family:12} sec={got_secondary_family} "
+                  f"hex={balanced['primary_color']['hex']} dt={dt:.2f}s")
 
     print()
     print(f"analyzed {len(latencies)}/{len(files)} images, {len(failures)} raised")

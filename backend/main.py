@@ -19,6 +19,21 @@ if config.CORS_ORIGINS:
     app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
+_uri = config.MONGODB_URI
+print(
+    "atelier startup: MONGODB_URI "
+    + ("missing" if not _uri else "ok-format" if _uri.startswith(("mongodb://", "mongodb+srv://")) else "MALFORMED (must start with mongodb:// or mongodb+srv://)")
+    + f", GEMINI_API_KEY {'set' if config.GEMINI_API_KEY else 'missing'}",
+    flush=True,
+)
+
+
+@app.get("/api/live")
+def live():
+    """Liveness for the platform health check: the process is up. Never touches the database."""
+    return {"status": "ok"}
+
+
 @app.get("/api/health")
 def health():
     if not db.ping():
