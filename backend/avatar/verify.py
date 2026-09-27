@@ -93,22 +93,43 @@ def _mid(points: dict, a: str, b: str) -> tuple[float, float]:
     return ((points[a][0] + points[b][0]) / 2, (points[a][1] + points[b][1]) / 2)
 
 
-def _region_point(garment_type: GarmentType, points: dict) -> Optional[tuple[float, float]]:
-    """A point likely inside `garment_type`'s garment, in `points`'s own pixel space."""
+def _region_points(garment_type: GarmentType, points: dict) -> list[tuple[float, float]]:
+    """Candidate points likely inside `garment_type`'s garment, in `points`'s own pixel space.
+    Usually one point; a jacket/coat gets several (see below) and the caller takes whichever
+    samples closest to the item's stored color -- mirrors the primary/secondary "best of a few"
+    match already used for stored colors (V-C6), applied here to sample location instead.
+
+    ISSUES #21 (2026-09-27): a jacket worn open/off-the-shoulder (Gemini draped it like a cape
+    rather than arms-in-sleeves, seen on avatar_f709dc's sandwich outfits) leaves the *near*
+    shoulder-to-elbow midpoint sitting on bare skin or the top underneath -- the jacket fabric is
+    there for the other arm instead, or lower down near the elbow itself. One point isn't
+    reliable across poses; four is: both arms' shoulder-elbow midpoints, plus both elbows
+    outright. Confirmed by probe_verify.py on the two failing renders: the existing single point
+    (left shoulder-elbow midpoint) sampled bare skin (dE 37.6 / 23.6 against stored black), while
+    at least one of the other three candidates landed on jacket fabric within a couple of dE of 0
+    on the same images -- and all four still agreed (best dE 0.8 / 7.2, close to the prior single
+    point's 14.9 / 9.1) on the two renders that already passed, so this doesn't loosen anything
+    for a jacket worn closed."""
     try:
         if garment_type in (GarmentType.shirt, GarmentType.dress):
             cx, cy = _mid(points, "left_shoulder", "right_shoulder")
             hx, hy = _mid(points, "left_hip", "right_hip")
-            return (cx + hx) / 2, (cy + hy) / 2
+            return [((cx + hx) / 2, (cy + hy) / 2)]
         if garment_type in (GarmentType.jacket, GarmentType.coat):
-            sh, el = points["left_shoulder"], points["left_elbow"]
-            return (sh[0] + el[0]) / 2, (sh[1] + el[1]) / 2
+            l_sh, l_el = points["left_shoulder"], points["left_elbow"]
+            r_sh, r_el = points["right_shoulder"], points["right_elbow"]
+            return [
+                ((l_sh[0] + l_el[0]) / 2, (l_sh[1] + l_el[1]) / 2),
+                ((r_sh[0] + r_el[0]) / 2, (r_sh[1] + r_el[1]) / 2),
+                (l_el[0], l_el[1]),
+                (r_el[0], r_el[1]),
+            ]
         # pants, shorts, skirt: a point on the upper leg, closer to the hip than the knee
         hx, hy = _mid(points, "left_hip", "right_hip")
         kx, ky = _mid(points, "left_knee", "right_knee")
-        return hx * 0.65 + kx * 0.35, hy * 0.65 + ky * 0.35
+        return [(hx * 0.65 + kx * 0.35, hy * 0.65 + ky * 0.35)]
     except KeyError:
-        return None
+        return []
 
 
 def _generated_points(generated_rgb: np.ndarray) -> Optional[dict[str, tuple[float, float]]]:
@@ -185,26 +206,36 @@ def verify_colors(
 
     failures = []
     for role, garment_type, item_doc in checks:
-        point = _region_point(garment_type, points)
-        if point is None:
+        candidates = _region_points(garment_type, points)
+        if not candidates:
             logger.info("avatar: verify %s (%s): no region point (missing landmark)", role, garment_type.value)
             continue  # can't locate this garment's region; don't fail the render over it
-        sampled_lab = _patch_lab_median(generated_rgb, point[0], point[1])
-        if sampled_lab is None:
-            logger.info("avatar: verify %s (%s): sample patch out of bounds", role, garment_type.value)
-            continue
 
         stored_labs = [tuple(item_doc["primary_color"]["lab"])]
         secondary = item_doc.get("secondary_color")
         if secondary is not None:
             stored_labs.append(tuple(secondary["lab"]))
-        des = [delta_e2000(lab, tuple(sampled_lab)) for lab in stored_labs]
-        de = min(des)
+
+        # Several candidate points per garment (jacket/coat: both arms), take whichever sample
+        # is closest to a stored color -- see _region_points' docstring (ISSUES #21).
+        best: Optional[tuple[float, tuple[float, float], np.ndarray]] = None
+        for point in candidates:
+            sampled_lab = _patch_lab_median(generated_rgb, point[0], point[1])
+            if sampled_lab is None:
+                continue
+            de = min(delta_e2000(lab, tuple(sampled_lab)) for lab in stored_labs)
+            if best is None or de < best[0]:
+                best = (de, point, sampled_lab)
+
+        if best is None:
+            logger.info("avatar: verify %s (%s): all sample patches out of bounds", role, garment_type.value)
+            continue
+        de, point, sampled_lab = best
 
         logger.info(
-            "avatar: verify %s (%s) via %s point=(%.1f,%.1f) sampled_lab=(%.1f,%.1f,%.1f) "
+            "avatar: verify %s (%s) via %s point=(%.1f,%.1f) of %d candidate(s) sampled_lab=(%.1f,%.1f,%.1f) "
             "stored_lab(s)=%s dE2000=%.1f",
-            role, garment_type.value, point_source, point[0], point[1],
+            role, garment_type.value, point_source, point[0], point[1], len(candidates),
             sampled_lab[0], sampled_lab[1], sampled_lab[2], stored_labs, de,
         )
         if de > VERIFY_MAX_DELTA_E:
