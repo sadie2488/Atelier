@@ -8,6 +8,7 @@ import { Carousel, type Study } from "@/components/closet/Carousel";
 import { Loader, StatePanel } from "@/components/StatePanel";
 import { CATEGORIES, type Category, type ExtractedColor, type Item } from "@/lib/api";
 import { useIsMobile, useItems, useStoredAvatar } from "@/lib/hooks";
+import { RenderProgress } from "@/components/RenderProgress";
 import { useRender } from "@/lib/useRender";
 
 type ClosetStudy = Study & { items: Item[]; type: string };
@@ -43,7 +44,7 @@ export default function ClosetPage() {
   const [detail, setDetail] = useState<Item | null>(null);
   const [tray, setTray] = useState<Tray>({});
   const [renderOpen, setRenderOpen] = useState(false);
-  const { view, loading, requestRender, clearRender } = useRender(avatar?.avatar_id);
+  const { view, loading, bar, requestRender, clearRender } = useRender(avatar?.avatar_id);
 
   useEffect(() => { setTray(readTray()); }, []);
   const updateTray = (next: Tray) => { setTray(next); writeTray(next); };
@@ -187,10 +188,11 @@ export default function ClosetPage() {
               return (
                 <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}${view?.generated ? " render-frame--generated" : ""}`}>
                   <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
+                  <RenderProgress bar={bar} />
                 </div>
               );
             })()}
-            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : view && !view.generated ? <>couldn’t style this one<button type="button" className="ghost-btn render-retry" onClick={seeItOnMe}>try again</button></> : " "}</p>
+            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling your look…" : view && !view.generated ? <>couldn’t style this one<button type="button" className="ghost-btn render-retry" onClick={seeItOnMe}>try again</button></> : " "}</p>
           </div>
         </div>
       )}

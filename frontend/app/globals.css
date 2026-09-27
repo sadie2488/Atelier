@@ -394,7 +394,14 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .render-panel .stylist-avatar-box, .stylist-page .stylist-avatar-box { aspect-ratio: 3 / 4; max-width: calc(100vw - 32px); }
 .render-panel .stylist-avatar-box { max-height: calc(100svh - 150px); }
 .render-img { object-fit: contain; object-position: center; }
-.render-frame--generated { background: #fff; }
+/* Try-ons arrive as transparent PNGs: no frame background, they sit on the page. */
+.render-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: color-mix(in oklch, var(--primary) 14%, transparent); pointer-events: none; z-index: 2; }
+.render-progress span { display: block; height: 100%; background: var(--primary); transform-origin: left center; transform: scaleX(0); }
+.render-progress--running span { animation: render-fill 13s cubic-bezier(.2,.7,.3,1) forwards; }
+.render-progress--done span { transform: scaleX(1); }
+.render-progress--done { animation: render-fade .6s ease .35s forwards; }
+@keyframes render-fill { from { transform: scaleX(0); } to { transform: scaleX(.9); } }
+@keyframes render-fade { to { opacity: 0; } }
 .render-retry { margin-left: 10px; min-height: 30px; padding: 0 12px; font-size: 12px; }
 @media (max-width: 700px) {
   .archive-content { padding-bottom: 84px; }
