@@ -5,11 +5,10 @@ Run from the repo root:  uvicorn backend.main:app --reload
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend import config, db
+from backend import config, db, media_store
 from backend.routes import avatar, items, outfits
 
 config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -30,7 +29,25 @@ def health():
 for module in (items, outfits, avatar):
     app.include_router(module.router, prefix="/api")
 
-app.mount("/media", StaticFiles(directory=config.MEDIA_DIR), name="media")
+
+@app.get("/media/{path:path}")
+def media(path: str):
+    """Local disk first (fast, and where temp candidates live); then MongoDB, cached locally."""
+    root = config.MEDIA_DIR.resolve()
+    target = (root / path).resolve()
+    if root not in target.parents:
+        raise StarletteHTTPException(status_code=404, detail=f"No media at /media/{path}.")
+    if target.is_file():
+        return FileResponse(target)
+    data = media_store.get(path)
+    if data is None:
+        raise StarletteHTTPException(status_code=404, detail=f"No media at /media/{path}.")
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    except OSError:
+        pass  # cache only; the bytes are served either way
+    return Response(content=data, media_type=media_store.content_type(path))
 
 
 # Every error leaves as a contract-shaped body, never a bare string or stack trace.

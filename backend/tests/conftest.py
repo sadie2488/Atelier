@@ -68,6 +68,17 @@ class FakeDB(dict):
         return self[name]
 
 
+@pytest.fixture(autouse=True)
+def memory_media(monkeypatch):
+    """Durable media goes to a dict instead of GridFS: tests never touch MongoDB."""
+    from backend import media_store
+
+    store: dict[str, bytes] = {}
+    monkeypatch.setattr(media_store, "put", lambda key, data: store.__setitem__(key, bytes(data)))
+    monkeypatch.setattr(media_store, "get", lambda key: store.get(key))
+    return store
+
+
 @pytest.fixture
 def memory_db():
     return FakeDB()

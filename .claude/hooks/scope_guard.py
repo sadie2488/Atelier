@@ -61,6 +61,7 @@ FROZEN = [
     "backend/requirements.txt",
     "backend/main.py",
     "backend/db.py",
+    "backend/media_store.py",
     "backend/config.py",
     "backend/tests/conftest.py",
     ".claude/**",
