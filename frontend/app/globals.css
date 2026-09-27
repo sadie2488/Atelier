@@ -608,3 +608,8 @@ select.attr-input { cursor: pointer; }
 
 /* shape-following shadow on garments in saved-outfit cards */
 .saved-thumb img { filter: drop-shadow(0 6px 8px color-mix(in oklab, var(--foreground) 18%, transparent)); }
+
+/* jackets: caption right under the jacket like the other lists, with the no-jacket toggle to its right */
+.jacket-caption { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.jacket-caption .jacket-toggle { height: 22px; min-height: 22px; line-height: 20px; padding: 0 8px; font-size: 10px; }
+.jacket-row-off { display: flex; justify-content: center; padding: 6px 0; }

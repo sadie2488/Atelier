@@ -183,18 +183,19 @@ export default function StylistPage() {
           const toggle = c === "jackets" && (
             <button type="button" className={`jacket-toggle${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => { setNoJacket((v) => !v); clearRender(); }}>{noJacket ? "with jacket" : "no jacket"}</button>
           );
-          if (c === "jackets" && noJacket) return <div className="jacket-block" key={c}>{toggle}</div>;
-          const row = (
+          const caption = <small>{c} {lists[c].length && !(c === "jackets" && noJacket) ? `${(idx[c] ?? 0) + 1}/${lists[c].length}` : ""}</small>;
+          const label = toggle ? <span className="jacket-caption">{caption}{toggle}</span> : caption;
+          if (c === "jackets" && noJacket) return <div className="jacket-row-off" key={c}>{label}</div>;
+          return (
             <div className="swipe-list" key={c}>
               <button type="button" aria-label={`Previous ${c}`} onClick={() => swipe(c, -1)} disabled={lists[c].length < 2}><ChevronLeft size={18} /></button>
               <div className="swipe-item">
                 {cur ? <img src={cur.cutout_url} alt={cur.retailer_item_name ?? c} /> : <span className="swipe-empty">no {c}</span>}
-                <small>{c} {lists[c].length ? `${(idx[c] ?? 0) + 1}/${lists[c].length}` : ""}</small>
+                {label}
               </div>
               <button type="button" aria-label={`Next ${c}`} onClick={() => swipe(c, 1)} disabled={lists[c].length < 2}><ChevronRight size={18} /></button>
             </div>
           );
-          return toggle ? <div className="jacket-block" key={c}>{toggle}{row}</div> : row;
         })}
         {!tooSmall && <button type="button" className="stylist-action try-on-btn" onClick={seeOutfit} disabled={busy || !curTop || !curBottom}>Try On!</button>}
       </div>
