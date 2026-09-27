@@ -15,10 +15,17 @@ both sides.
 
 ## Connecting the frontend
 
-**Status (2026-09-26):** every endpoint below is live on the backend (branch `pm/phase0-plan2`).
+**Status (2026-09-26):** every endpoint below is live on `main`.
 
-1. **Run the backend** (repo root, Python 3.12 venv, `backend/.env` with `MONGODB_URI` and
-   `GEMINI_API_KEY`):
+1. **Run the backend** (repo root, `backend/.env` with `MONGODB_URI` and `GEMINI_API_KEY`).
+   It needs **Python 3.12** — MediaPipe has no 3.13/3.14 build. First time only, build the venv
+   from the requirements (a venv made for the old hello-world backend lacks numpy, MediaPipe,
+   etc.):
+   ```
+   py -3.12 -m venv .venv            # or: uv venv .venv --python 3.12   (macOS/Linux: python3.12 -m venv .venv)
+   .venv/Scripts/python.exe -m pip install -r backend/requirements.txt   # macOS/Linux: .venv/bin/python
+   ```
+   Then run it:
    ```
    .venv/Scripts/python.exe -m uvicorn backend.main:app --port 8000
    ```
