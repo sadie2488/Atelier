@@ -226,7 +226,7 @@ def read_manifest(path: Path, folder: Path) -> list[dict]:
 # ----------------------------------------------------------------------------- backup / archive
 def backup(db) -> Path:
     from backend import config
-    docs = db["items"].find({})
+    docs = list(db["items"].find({}))  # a real Mongo cursor can only be read once
     for d in docs:
         d.pop("_id", None)
     keys = [f"items/{d['id']}.png" for d in docs]
@@ -239,7 +239,7 @@ def backup(db) -> Path:
 
 
 def _move(db, src: str, dst: str, dry: bool, yes: bool):
-    docs = db[src].find({})
+    docs = list(db[src].find({}))  # a real Mongo cursor can only be read once
     ids = [d["id"] for d in docs]
     print(f"plan: copy {len(docs)} doc(s) from '{src}' to '{dst}' (upsert by id), then delete "
           f"them from '{src}'. Media files / GridFS are NOT touched. ids: {', '.join(ids) or '-'}")
@@ -252,7 +252,7 @@ def _move(db, src: str, dst: str, dry: bool, yes: bool):
         if db[dst].find_one({"id": d["id"]}) is None:
             db[dst].insert_one(d)
         db[src].delete_one({"id": d["id"]})
-    print(f"done: '{src}' now has {len(db[src].find({}))}, '{dst}' has {len(db[dst].find({}))}.")
+    print(f"done: '{src}' now has {len(list(db[src].find({})))}, '{dst}' has {len(list(db[dst].find({})))}.")
 
 
 # ----------------------------------------------------------------------------- contact sheets
