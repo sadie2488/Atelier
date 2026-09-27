@@ -373,3 +373,26 @@ def test_stray_color_rule_drops_foreign_patch_keeps_stripe_band():
     assert out[10:100, 10:90].all() and out[110:190, 70:90].all()
     # without rgb the geometric rule alone keeps the patch (unchanged behavior)
     assert _drop_stray_components(mask)[160:185, 10:40].all()
+
+
+# ---------------------------------------------------------------- 2.3.0: PATCH /items/{slug} rename
+
+def test_rename_item_changes_only_the_name(client, memory_db):
+    import json
+    from pathlib import Path
+    from contract.schemas import Item
+    fx = Path(__file__).resolve().parents[2] / "contract" / "fixtures" / "api" / "get_items_detail.response.json"
+    doc = json.loads(fx.read_text(encoding="utf-8"))
+    memory_db["items"].insert_one(dict(doc))
+    r = client.patch(f"/api/items/{doc['id']}", json={"name": "  My green dress  "})
+    assert r.status_code == 200, r.text
+    out = Item.model_validate(r.json())
+    assert out.retailer_item_name == "My green dress"
+    assert out.id == doc["id"] and out.primary_color.hex == doc["primary_color"]["hex"]
+    assert client.get(f"/api/items/{doc['id']}").json()["retailer_item_name"] == "My green dress"
+
+
+def test_rename_item_errors(client, memory_db):
+    assert client.patch("/api/items/top_000000", json={"name": "x"}).json()["error"]["code"] == "not_found"
+    r = client.patch("/api/items/top_000000", json={"name": ""})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_request"

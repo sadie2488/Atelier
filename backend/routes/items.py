@@ -19,7 +19,7 @@ from backend.db import get_db
 from contract.enums import Category, ErrorCode, GarmentType, SLUG_PREFIX
 from contract.schemas import (
     AnalyzeForm, AnalyzeResponse, Candidate, ExtractedColor, Item, ItemListResponse,
-    RejectRequest, RejectResponse, SaveRequest,
+    RejectRequest, RejectResponse, RenameRequest, SaveRequest,
 )
 
 from backend.vision import VisionError
@@ -231,3 +231,16 @@ def get_item(slug: str, db=Depends(get_db)):
     if doc is None:
         return _error(ErrorCode.not_found, f"No item with id {slug!r}.")
     return _to_item(doc)
+
+
+@router.patch("/{slug}")
+def rename_item(slug: str, body: RenameRequest, db=Depends(get_db)):
+    """2.3.0: rename a saved item. Only the display name (retailer_item_name) changes; the id and
+    every piece of data stored under it stay the same."""
+    name = body.name.strip()
+    if not name:
+        return _error(ErrorCode.invalid_request, "The name can't be empty.")
+    if db["items"].find_one({"id": slug}) is None:
+        return _error(ErrorCode.not_found, f"No item with id {slug!r}.")
+    db["items"].update_one({"id": slug}, {"$set": {"retailer_item_name": name}})
+    return _to_item(db["items"].find_one({"id": slug}))

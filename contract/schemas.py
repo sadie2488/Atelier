@@ -21,7 +21,7 @@ from .enums import (
 )
 from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "2.2.0"
+CONTRACT_VERSION = "2.3.0"
 
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
 SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
@@ -177,6 +177,11 @@ class SaveRequest(Strict):
 
 
 SaveResponse = Item
+
+
+class RenameRequest(Strict):
+    """PATCH /items/{slug}. Renames a saved item (sets retailer_item_name). 2.3.0, additive."""
+    name: str = Field(min_length=1, max_length=80)
 
 
 class RejectRequest(Strict):
@@ -348,6 +353,7 @@ ENDPOINTS = [
     ("POST", "/items/reject",       RejectRequest,          RejectResponse),
     ("GET",  "/items",              None,                   ItemListResponse),
     ("GET",  "/items/{slug}",       None,                   Item),
+    ("PATCH", "/items/{slug}",      RenameRequest,          Item),
     ("POST", "/outfits/generate",   OutfitsGenerateRequest, OutfitsGenerateResponse),
     ("POST", "/avatar/scan",        "multipart",            AvatarScanResponse),
     ("GET",  "/avatar/{avatar_id}", None,                   Avatar),
@@ -358,7 +364,7 @@ ENDPOINTS = [
 
 # Every model published in schema.json (the frontend generates TypeScript from it).
 API_MODELS = [
-    ExtractedColor, Item, AnalyzeForm, Candidate, AnalyzeResponse, SaveRequest, RejectRequest,
+    ExtractedColor, Item, AnalyzeForm, Candidate, AnalyzeResponse, SaveRequest, RenameRequest, RejectRequest,
     RejectResponse, ItemListResponse, Outfit, OutfitsGenerateRequest, OutfitsGenerateResponse,
     AvatarScanResponse, Avatar, RenderRequest, RenderJob, HealthResponse, ErrorResponse,
     FamilyShare, PaletteSwatch, VersatileItem, PaletteInsights,

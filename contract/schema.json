@@ -723,6 +723,23 @@
       "title": "RejectResponse",
       "type": "object"
     },
+    "RenameRequest": {
+      "additionalProperties": false,
+      "description": "PATCH /items/{slug}. Renames a saved item (sets retailer_item_name). 2.3.0, additive.",
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "RenameRequest",
+      "type": "object"
+    },
     "RenderJob": {
       "additionalProperties": false,
       "description": "POST /render and GET /render/{render_id}. local_url is always present and correct;\ngenerated_url is set exactly when status is done.",
@@ -870,5 +887,5 @@
       "type": "object"
     }
   },
-  "title": "Atelier contract 2.2.0"
+  "title": "Atelier contract 2.3.0"
 }
