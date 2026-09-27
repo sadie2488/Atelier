@@ -17,7 +17,7 @@ then see the look on an avatar built from a scan of you.
 ![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?style=for-the-badge&logo=google&logoColor=white)
 
-![Tests](https://img.shields.io/badge/tests-122_passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-140%2B_passing-brightgreen?style=flat-square)
 ![Offline suite](https://img.shields.io/badge/test_suite-fully_offline-blue?style=flat-square)
 ![Status](https://img.shields.io/badge/status-hackathon_build-orange?style=flat-square)
 
@@ -55,7 +55,8 @@ from the model with pose-guided segmentation. Nothing is saved until you pick on
 
 ### Real color measurement
 K-means clustering in **CIELAB** finds each garment's primary and secondary color. Colors stay
-numeric; "neutral" is computed from chroma, never guessed from a name.
+numeric; "neutral" is computed from chroma, never guessed from a name. Each color also gets a
+friendly **display name** from the xkcd color survey, for people rather than for the scorer.
 
 </td>
 </tr>
@@ -63,8 +64,9 @@ numeric; "neutral" is computed from chroma, never guessed from a name.
 <td width="50%" valign="top">
 
 ### Color-theory outfits
-Named strategies (*neutral anchor*, *everyday-neutral base*, *analogous*, *complementary*)
-feed a **pure, deterministic scorer**. Up to five ranked outfits, each with a one-line reason.
+Six named strategies (*neutral anchor*, *everyday-neutral base*, *analogous*, *complementary*,
+*monochrome + highlight*, *sandwich*) feed a **pure, deterministic scorer**. Up to five ranked
+outfits, each with a one-line reason.
 
 </td>
 <td width="50%" valign="top">
@@ -190,10 +192,11 @@ npm run dev        # http://localhost:3000
 | Route | What it does |
 |:--|:--|
 | `/` | Landing |
-| `/closet` | Swipe tops and bottoms, generate outfits |
-| `/scan` | Camera capture with a consent notice and countdown; `?backup=<avatar_id>` skips straight to a pre-scanned avatar |
+| `/closet` | Swipe tops and bottoms, generate outfits; a **palette insights** button sits above **generate outfit** |
+| `/scan` | Camera capture with a consent notice and countdown; a rejected pose lists every failing check with its measurement; `?backup=<avatar_id>` skips straight to a pre-scanned avatar (auto-capture on a correct pose is coming) |
 | `/add-item` | Ingest a garment: analyze, pick a candidate, save |
 | `/stylist` | The two-stage render — local composite on tap, Gemini try-on swapped in silently once it's verified |
+| `/insights` | **Your palette:** color swatches, family bars, neutral share, plain-language insights, and the closet's most versatile pieces — all from a MongoDB aggregation over the closet |
 
 </details>
 
@@ -216,6 +219,7 @@ All routes live under `/api`. Errors are always `{"error": {"code": "...", "mess
 | `GET` | `/api/avatar/{avatar_id}` | One avatar |
 | `POST` | `/api/render` | Outfit on avatar → instant local composite |
 | `GET` | `/api/render/{render_id}` | Poll until `done` (swap in `generated_url`) or `failed` (keep local) |
+| `GET` | `/api/insights/palette` | Closet-wide color summary: swatches, family shares, neutral share, plain-language insights, most versatile items |
 
 Full behavior: [`coordination/BACKEND_API.md`](coordination/BACKEND_API.md) ·
 Types: [`contract/schema.json`](contract/schema.json) ·
@@ -282,6 +286,11 @@ tools/                 checks and maintenance scripts
 - **Pure scoring.** No I/O in the scorer: same closet, same outfits.
 - **The local path always works.** Generation is an enhancement that may silently fail.
 - **A dress is a top.** It lives in the tops list and layers over a bottom.
+
+**Working across two laptops.** The project runs on two machines at once, coordinated through
+`coordination/`: [`COMMS.md`](coordination/COMMS.md) is the cross-computer message file,
+[`FRONTEND_AGENT.md`](coordination/FRONTEND_AGENT.md) is the Frontend Lead's brief, and
+[`ISSUES.md`](coordination/ISSUES.md) tracks every issue, who owns it, and its status.
 
 ---
 
