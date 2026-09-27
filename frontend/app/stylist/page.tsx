@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
 import { CATEGORIES, createRender, generateOutfits, pollRender, type Category, type Item } from "@/lib/api";
@@ -38,15 +38,20 @@ export default function StylistPage() {
   const bottom = lists?.bottoms[idx.bottoms];
   const jacket = noJacket ? undefined : lists?.jackets[idx.jackets];
   const avatarId = avatar?.avatar_id;
+  const renderCtlRef = useRef<AbortController | null>(null);
 
-  // Two-stage render: show local_url at once, poll for generated_url, swap silently. Failures never surface.
-  useEffect(() => {
-    if (!avatarId || !top || !bottom) { setView(null); return; }
+  // Render on explicit action only (DECISIONS A-R1): "See it on me" for the current selection,
+  // or right after "generate outfit" positions the lists. Never on swipe or selection change.
+  // Two-stage: show local_url at once, poll for generated_url, swap silently. Failures never surface.
+  const requestRender = useCallback((topId: string, bottomId: string, jacketId: string | null) => {
+    if (!avatarId) return;
+    renderCtlRef.current?.abort();
     const ctl = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
+    renderCtlRef.current = ctl;
+    setLoading(true);
+    (async () => {
       try {
-        const job = await createRender({ avatar_id: avatarId, top_id: top.id, bottom_id: bottom.id, jacket_id: jacket?.id ?? null });
+        const job = await createRender({ avatar_id: avatarId, top_id: topId, bottom_id: bottomId, jacket_id: jacketId });
         if (ctl.signal.aborted) return;
         setLoading(false);
         setView({ local: job.local_url, generated: job.generated_url ?? undefined, pending: job.status === "pending" });
@@ -57,9 +62,13 @@ export default function StylistPage() {
       } catch {
         if (!ctl.signal.aborted) { setLoading(false); setView((v) => (v ? { ...v, pending: false } : null)); }
       }
-    }, 500);
-    return () => { window.clearTimeout(timer); ctl.abort(); };
-  }, [avatarId, top?.id, bottom?.id, jacket?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    })();
+  }, [avatarId]);
+
+  // Cancel any in-flight render/poll on unmount.
+  useEffect(() => () => { renderCtlRef.current?.abort(); }, []);
+
+  const seeItOnMe = () => { if (top && bottom) requestRender(top.id, bottom.id, jacket?.id ?? null); };
 
   if (avatar === undefined || itemsQ.isPending) return <main className="flow-page"><Loader label="Setting up the studio…" /></main>;
   if (avatar === null) return (
@@ -71,11 +80,16 @@ export default function StylistPage() {
 
   const tooSmall = lists.tops.length === 0 || lists.bottoms.length === 0;
 
+  // Swiping never calls /api/render — it just clears a stale render (and cancels any in-flight poll
+  // for the selection being left) so the avatar falls back to the plain avatar image.
+  const clearRender = () => { renderCtlRef.current?.abort(); setLoading(false); setView(null); };
+
   const swipe = (c: Category, d: number) => {
     const n = lists[c].length;
     if (!n) return;
     setIdx((p) => ({ ...p, [c]: (((p[c] ?? 0) + d) % n + n) % n }));
     setExplanation(null);
+    clearRender();
   };
 
   const generate = async () => {
@@ -88,6 +102,8 @@ export default function StylistPage() {
       setIdx({ tops: 0, bottoms: 0, jackets: 0 });
       setNoJacket(!best.jacket_id);
       setExplanation(best.explanation);
+      // Render right away for the top-ranked outfit just positioned at index 0.
+      requestRender(best.top_id, best.bottom_id, best.jacket_id ?? null);
     } catch { setNotice("failed"); }
     finally { setBusy(false); }
   };
@@ -125,7 +141,8 @@ export default function StylistPage() {
         ) : (
           <button type="button" className="stylist-action" onClick={generate} disabled={busy}>{busy ? "styling…" : "generate outfit"}</button>
         )}
-        <button type="button" className={`stylist-action${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => setNoJacket((v) => !v)}>{noJacket ? "with jacket" : "no jacket"}</button>
+        <button type="button" className="stylist-action" onClick={seeItOnMe} disabled={!top || !bottom || loading}>see it on me</button>
+        <button type="button" className={`stylist-action${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => { setNoJacket((v) => !v); clearRender(); }}>{noJacket ? "with jacket" : "no jacket"}</button>
         {notice === "none" && <p className="stylist-note">No good combinations from this closet yet. Add a few more pieces.</p>}
         {notice === "failed" && <p className="stylist-note">The stylist couldn&apos;t compose a look just now. Try again in a moment.</p>}
       </div>
