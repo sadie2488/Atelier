@@ -464,9 +464,12 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 @media (max-width: 700px) { .stylist-page .stylist-actions { flex-wrap: wrap; justify-content: center; } }
 /* === end stylist block === */
 
-/* ---- closet: no drop shadow on garment images (carousel + detail popup) ---- */
+/* ---- closet: small soft drop shadow on garment cutouts (carousel + detail popup); zoom scales from the center ---- */
 .image-frame, .strip-item, .strip-item:hover, .strip-item.is-selected .image-frame { box-shadow: none; }
-.image-frame img, .detail-panel > img { filter: none; }
+.image-frame img, .detail-media > img { filter: drop-shadow(0 10px 14px color-mix(in oklab, var(--foreground) 16%, transparent)); }
+.strip-item, .strip-item.is-selected .image-frame, .strip-item.is-selected .image-frame img, .detail-media > img { transform-origin: 50% 50%; }
+/* the stage only clips sideways, so the zoomed garment's shadow is never cut off at its top or bottom */
+.study-stage { overflow-x: clip; overflow-y: visible; }
 /* ---- closet: rename garment ---- */
 .detail-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .detail-name h2 { min-width: 0; overflow-wrap: anywhere; }
