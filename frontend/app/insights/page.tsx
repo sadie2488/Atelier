@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { ChevronLeft } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
 import { ApiError, getPaletteInsights, type PaletteInsights } from "@/lib/api";
 import { useItems } from "@/lib/hooks";
@@ -56,6 +57,7 @@ export default function InsightsPage() {
   return (
     <main className="editorial-page" aria-label="Palette insights">
       <div className="editorial-inner">
+        <Link href="/stylist" className="ghost-btn insights-back" style={{ display: "inline-flex", alignItems: "center", gap: 6, alignSelf: "flex-start", marginBottom: 16 }}><ChevronLeft size={16} strokeWidth={1.75} /> back to stylist</Link>
         <header className="editorial-heading">
           <span className="editorial-kicker">closet analysis</span>
           <h1>Your palette</h1>
