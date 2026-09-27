@@ -24,7 +24,9 @@ from contract.schemas import (
 
 from backend.vision import VisionError
 from backend.vision.failures import log_failure
+from backend.vision.flatlay import analyze_flatlay_bytes
 from backend.vision.ingest import build_candidates
+from backend.vision.tagging import tag_item
 from backend.vision.session import (
     delete_session, load_session, new_temp_handle, save_session, sweep_expired, tmp_media_dir,
 )
@@ -70,6 +72,18 @@ def _fresh_slug(prefix: str, items) -> str:
     raise VisionError(ErrorCode.analyze_failed, "Could not allocate a unique item slug.")
 
 
+def _build_any(data: bytes, category, garment_type):
+    """Person pipeline first (unchanged for photos with a person); flat-lay/product-photo
+    fallback (alpha cutout, else background flood-fill + GrabCut) when no person is detected.
+    Same return shape either way."""
+    try:
+        return build_candidates(data, category, garment_type)
+    except VisionError as e:
+        if e.code != ErrorCode.no_person_detected:
+            raise
+        return analyze_flatlay_bytes(data, category, garment_type)
+
+
 @router.post("/analyze")
 async def analyze(
     image: UploadFile = File(...),
@@ -86,7 +100,7 @@ async def analyze(
     data = await image.read()
 
     try:
-        candidates, multi_person, category_mismatch = build_candidates(data, form.category, form.garment_type)
+        candidates, multi_person, category_mismatch = _build_any(data, form.category, form.garment_type)
     except VisionError as e:
         return _error(e.code, e.message)
     except Exception as e:  # segmentation/color raised unexpectedly -- never a silent fallback
@@ -185,7 +199,7 @@ def save(body: SaveRequest, db=Depends(get_db)):
         "secondary_color": cand["secondary_color"],
         "retailer_color": session.get("retailer_color"),
         "retailer_item_name": session.get("retailer_item_name"),
-        "attributes": {},
+        "attributes": tag_item(dest_path, category.value),   # {} on any failure (degraded)
         "created_at": datetime.now(timezone.utc),
         "anchors": cand["anchors"],   # DB-only, ARTIFACT_SPEC
     }

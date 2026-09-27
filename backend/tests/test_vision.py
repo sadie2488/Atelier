@@ -416,3 +416,59 @@ def test_edit_item_attributes_merge_and_remove(client, memory_db):
 def test_edit_item_needs_something_to_change(client, memory_db):
     r = client.patch("/api/items/top_000000", json={})
     assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_request"
+
+
+# --------------------------------------------------------------------------------- flat-lay + auto-tagging
+
+FLATLAY_FIXTURE = Path(__file__).resolve().parents[2] / "media" / "_closet_new" / "29_grey_tee.png"
+
+
+def _flatlay_analyze_and_save(client):
+    if not FLATLAY_FIXTURE.exists():
+        pytest.skip("flat-lay fixture not present")
+    files = {"image": ("tee.png", io.BytesIO(FLATLAY_FIXTURE.read_bytes()), "image/png")}
+    r = client.post("/api/items/analyze", files=files, data={"category": "tops", "garment_type": "shirt"})
+    assert r.status_code == 200, r.text
+    resp = AnalyzeResponse.model_validate(r.json())
+    assert len(resp.candidates) == 3
+    s = client.post("/api/items/save", json={"temp_handle": resp.temp_handle, "candidate_index": 1})
+    assert s.status_code == 200, s.text
+    return Item.model_validate(s.json())
+
+
+def test_flatlay_upload_falls_back_and_saves(client, fake_db):
+    item = _flatlay_analyze_and_save(client)
+    assert item.id.startswith("top_")
+    assert item.attributes == {}          # no key in tests -> Gemini skipped, degraded state
+    assert fake_db["items"].find_one({"id": item.id}) is not None
+    _cleanup_media(slug=item.id)
+
+
+def test_auto_tagging_stores_filtered_attributes(client, fake_db, monkeypatch):
+    import json
+    from backend.vision import tagging
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake")
+    payload = {"subcategory": "T-Shirt ", "sleeve": "short", "fit": "regular", "formality": "casual",
+               "bogus": "x", "material": "y" * 61, "pattern": 3}
+    monkeypatch.setattr(tagging, "_call", lambda data, cat: json.dumps(payload))
+    item = _flatlay_analyze_and_save(client)
+    expected = {"subcategory": "t-shirt", "sleeve": "short", "fit": "regular", "formality": "casual"}
+    assert item.attributes == expected
+    assert fake_db["items"].find_one({"id": item.id})["attributes"] == expected
+    _cleanup_media(slug=item.id)
+
+
+def test_auto_tagging_failure_still_saves_without_attributes(client, fake_db, monkeypatch):
+    from backend.vision import tagging
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake")
+
+    def _boom(data, cat):
+        raise RuntimeError("gemini down")
+
+    monkeypatch.setattr(tagging, "_call", _boom)
+    item = _flatlay_analyze_and_save(client)
+    assert item.attributes == {}
+    assert fake_db["items"].find_one({"id": item.id}) is not None
+    _cleanup_media(slug=item.id)
