@@ -177,8 +177,7 @@ var $=function(id){return document.getElementById(id);};
 function show(id){["start","busy","done","rejected"].forEach(function(k){$(k).classList.toggle("hidden",k!==id);});}
 function reject(msg){
   var ul=$("reasons");ul.innerHTML="";
-  String(msg||"Could not process the photo.").split("
-").forEach(function(line){
+  String(msg||"Could not process the photo.").split("\\n").forEach(function(line){
     if(line.trim()){var li=document.createElement("li");li.textContent=line.trim();ul.appendChild(li);}
   });
   show("rejected");

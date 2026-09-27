@@ -1990,3 +1990,14 @@ def test_phone_latest_404_when_no_avatar(client):
     resp = client.get("/api/phone/latest", follow_redirects=False)
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
+
+
+def test_phone_page_script_has_no_raw_newline_in_strings():
+    """The phone page's inline JS must parse: a real line break inside a JS string literal killed
+    the whole script on the live site (split("\n") was served with an actual newline)."""
+    import re
+    from backend.routes.avatar import _PHONE_HTML
+    js = re.search(r"<script>(.*?)</script>", _PHONE_HTML, re.S).group(1)
+    assert '.split("\n")' in js
+    for literal in re.findall(r'"(?:[^"\\n]|\.)*\n', js):
+        raise AssertionError(f"raw newline inside a JS string literal: {literal!r}")
