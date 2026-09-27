@@ -17,7 +17,7 @@ from PIL import Image
 
 from contract.enums import GarmentType, RenderStatus
 
-from . import gen_client, media, verify
+from . import gen_client, media, person, verify
 from .errors import AvatarError
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,20 @@ def _run(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collect
             _update(renders_collection, render_id, RenderStatus.failed, None)
             return
 
-        generated_url = media.save_png(generated, "renders", f"{render_id}_generated.png")
+        # Transparent try-on (human request): verification above ran on the RGB white-background
+        # image; only now is the person cut out (segmentation, not a white threshold). Degraded
+        # state, not a failure: if the cutout fails, the white-background image is saved as is.
+        to_save = generated
+        try:
+            cut = person.cut_out_generated(np.asarray(generated.convert("RGB")))
+        except Exception:
+            cut = None
+        if cut is not None:
+            to_save = cut
+        else:
+            logger.warning("avatar: render %s background cutout failed; keeping white background", render_id)
+
+        generated_url = media.save_png(to_save, "renders", f"{render_id}_generated.png")
         _update(renders_collection, render_id, RenderStatus.done, generated_url)
 
     except (gen_client.GenerationError, AvatarError) as e:

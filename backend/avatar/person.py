@@ -372,3 +372,58 @@ def pad_to_ratio(crop_img: Image.Image, ratio: float = CANVAS_RATIO) -> tuple[Im
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     canvas.alpha_composite(crop_img.convert("RGBA"), offset)
     return canvas, offset
+
+
+# The segmenter runs at 256x256, so on a ~1200px render its edge is blocky and off by up to ~10px
+# (white slivers kept past the silhouette, hair tips cut). Only within a narrow band around that
+# edge, the silhouette is snapped to the render's own plain-white background: near-white pixels in
+# the band that CONNECT to the outside are background, anything else in the band is person. The
+# eroded interior is never touched, so a white garment inside the body always survives; a white
+# garment touching the silhouette can lose at most the band width.
+GEN_EDGE_BAND_FRACTION = 1 / 128   # of the long side (~10px on a 1216px render)
+GEN_WHITE_MIN = 243                # every channel >= this reads as the plain white background
+
+
+def _snap_edge_to_white_background(mask: np.ndarray, rgb: np.ndarray) -> np.ndarray:
+    h, w = mask.shape
+    k = max(3, round(max(h, w) * GEN_EDGE_BAND_FRACTION)) | 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))
+    m8 = mask.astype(np.uint8)
+    core = cv2.erode(m8, kernel) > 0
+    outer = cv2.dilate(m8, kernel) > 0
+    near_white = rgb.min(axis=2) >= GEN_WHITE_MIN
+    # Background candidates: everything outside the band, plus near-white pixels in it.
+    bg_cand = (~outer | (near_white & ~core)).astype(np.uint8)
+    _n, labels = cv2.connectedComponents(bg_cand, connectivity=4)
+    outside_labels = np.unique(labels[~outer & (bg_cand > 0)])
+    background = np.isin(labels, outside_labels[outside_labels != 0])
+    snapped = _largest_component(outer & ~background)
+    # The render's own anti-aliased rim (light, just under GEN_WHITE_MIN) shows as a pale outline on
+    # dark UI; pull the edge in by 1px so the feather starts on the person, not on that rim.
+    return cv2.erode(snapped.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+
+
+# Transparent try-on (human request 2026-09-27): the Gemini try-on render (prompt v5) comes back on
+# plain white; it is saved with that background made transparent. Person SEGMENTATION, never a
+# white-color threshold -- white/cream garments must survive. Full frame, full canvas size (no
+# crop), so framing stays identical to the white-background render. No pose bbox / head / feet
+# trims: a generated image has no background people and no floor shadow to remove.
+def cut_out_generated(rgb: np.ndarray) -> Optional[Image.Image]:
+    """-> RGBA image, same size as `rgb`, with the background transparent and a ~1-2px feathered
+    edge; or None if segmentation fails or the mask is implausibly small (caller keeps the
+    white-background image -- a documented degraded state, the image is still correct)."""
+    cats = _segment_categories(np.ascontiguousarray(rgb[..., :3]))
+    if cats is None:
+        return None
+    mask = cats != 0
+    if mask.shape != rgb.shape[:2] or mask.sum() < MIN_PERSON_FRACTION * mask.size:
+        return None
+    mask = _close_small_holes(_largest_component(mask))
+    mask = _snap_edge_to_white_background(mask, rgb[..., :3])
+    if mask.sum() < MIN_PERSON_FRACTION * mask.size:
+        return None
+
+    alpha = _feather(mask)
+    # No color un-blending of the soft edge: tried, it amplified the render's own edge noise into
+    # dark specks; the 1px pull-in above already keeps the white rim out.
+    return Image.fromarray(np.dstack([np.ascontiguousarray(rgb[..., :3]).astype(np.uint8), alpha]), mode="RGBA")

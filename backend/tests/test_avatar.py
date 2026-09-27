@@ -1563,3 +1563,56 @@ def test_head_trim_is_a_noop_without_face_skin():
     mask = cats != 0
     out = person._trim_head_background(mask, np.zeros((100, 100, 3), np.uint8), cats, shoulder_y=40)
     assert (out == mask).all()
+
+
+# ---------------------------------------------------------------- transparent try-on background
+
+def _person_on_white(size=PERSON_PHOTO_SIZE):
+    """A synthetic 'generated' try-on: white background, a red-top/blue-bottom body in the middle
+    (covering verify's sample points), plus a WHITE garment patch inside the body that a
+    white-threshold cutout would wrongly erase. -> (image, category mask of the body)."""
+    w, h = size
+    img = _half_and_half_image((255, 0, 0), (0, 0, 255), size)
+    arr = np.array(img)
+    body = np.zeros((h, w), dtype=np.uint8)
+    body[round(h * 0.05):round(h * 0.97), round(w * 0.2):round(w * 0.8)] = 4
+    arr[body == 0] = 255
+    arr[round(h * 0.1):round(h * 0.2), round(w * 0.3):round(w * 0.7)] = 255  # white garment detail
+    return Image.fromarray(arr), body
+
+
+def _gen_with_segmenter(monkeypatch, image, category_mask):
+    def _gen(person_img, top, bottom, jacket, is_dress):
+        # Swapped in only once generation runs, so the scan's own real-body cutout is untouched.
+        monkeypatch.setattr(person, "image_segmenter", lambda: _fake_segmenter_with_mask(category_mask))
+        return image
+    return _gen
+
+
+def test_generated_render_saved_with_transparent_background(client, memory_db, monkeypatch, tmp_path):
+    image, body = _person_on_white()
+    settled, media_dir = _render_with_generation(
+        client, memory_db, monkeypatch, tmp_path, _gen_with_segmenter(monkeypatch, image, body),
+    )
+    assert settled["status"] == "done"
+    saved = Image.open(media_dir / settled["generated_url"][len("/media/"):])
+    assert saved.mode == "RGBA"
+    assert saved.size == image.size  # full canvas, never cropped
+    alpha = np.array(saved.getchannel("A"))
+    h, w = alpha.shape
+    for y, x in [(0, 0), (0, w - 1), (h - 1, 0), (h - 1, w - 1)]:
+        assert alpha[y, x] == 0
+    # The white garment inside the body survives (segmentation, not a white threshold).
+    assert alpha[round(h * 0.15), w // 2] == 255
+    assert tuple(np.array(saved)[round(h * 0.15), w // 2][:3]) == (255, 255, 255)
+
+
+def test_generated_render_cutout_failure_keeps_white_and_marks_done(client, memory_db, monkeypatch, tmp_path):
+    image, body = _person_on_white()
+    empty = np.zeros_like(body)  # segmenter finds nobody -> degraded: white background kept
+    settled, media_dir = _render_with_generation(
+        client, memory_db, monkeypatch, tmp_path, _gen_with_segmenter(monkeypatch, image, empty),
+    )
+    assert settled["status"] == "done"
+    saved = np.array(Image.open(media_dir / settled["generated_url"][len("/media/"):]).convert("RGBA"))
+    assert (saved[0, 0] == (255, 255, 255, 255)).all()
