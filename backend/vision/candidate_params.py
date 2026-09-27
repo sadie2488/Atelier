@@ -92,6 +92,57 @@ ISOLATION_SAMPLE_PIXELS = 20000
 # for k-means clusters to mean anything, and the mask is already tiny.
 ISOLATION_MIN_PIXELS = 400
 
+# V6.1 isolation (re-dispatch: patterned-garment regression): a non-anchor cluster's SAME_FABRIC/
+# area-ratio tests above (SAME_FABRIC_MAX_DELTA_E, SECONDARY_MAX_AREA_RATIO) can still wrongly
+# drop a multi-color knit pattern -- a Fair Isle yoke's burgundy/pink colorwork is neither close
+# enough in Lab to the cream anchor to pass SAME_FABRIC_MAX_DELTA_E, nor a small enough fraction
+# of the anchor's area to pass SECONDARY_MAX_AREA_RATIO once its many small diamonds/strips are
+# summed up as one k-means cluster. `_isolate_by_color` now also keeps any CONNECTED COMPONENT
+# (not the whole cluster -- see below) of a dropped cluster that is spatially INTERLEAVED with
+# the anchor: small enough on its own, and mostly ringed by already-kept fabric rather than by
+# background/skin/a different garment. A component is judged interleaved, not a competing
+# garment, when BOTH hold:
+#   - its own pixel count is at most PATTERN_MAX_COMPONENT_FRAC of the anchor cluster's area (a
+#     colorwork diamond/strip is a small fragment; a competing garment's visible piece -- a tank
+#     under an open jacket, a skirt hem below a cropped top -- is comparable in size to what's
+#     left of the garment it's competing with);
+#   - dilating it by PATTERN_RING_PX and looking at just the new ring, at least
+#     PATTERN_BOUNDARY_CONTACT_MIN of that ring is already-kept fabric, not the region outside
+#     `base` or another dropped cluster (a pattern fragment sits almost entirely inside the
+#     anchor's own fabric; a competing garment's visible piece borders exposed skin/background
+#     along most of its real edge, since that's what makes it visible at all).
+# This is evaluated per CONNECTED COMPONENT of the dropped cluster, not the cluster as a whole,
+# because one k-means cluster can contain both harmless within-garment specular highlights (kept
+# by this rule, which is fine -- they're the SAME garment, just a shinier patch) and one genuine
+# competing-garment piece in the same color (dropped by this rule, because that piece alone fails
+# the size/boundary test even though smaller flecks of the same cluster pass it).
+# Tuned against fixtures/images on 2026-09-26 against two specific cases (see
+# backend/vision/scripts/eval_fixtures.py for the full run):
+#   - "red Whoa So Soft Shrunken Fairisle Cardigan Sweater #661720.png": the two pattern-color
+#     k-means clusters had their largest fragments at 6.5%/9.5% of the anchor (cream) cluster's
+#     area, each with >=0.59 boundary contact to the kept cream -- both must be kept.
+#   - "black Leather Blazer #1c1c1c.webp": the visible denim mini-skirt's largest fragment was
+#     10.4% of the anchor (black leather) area but only 0.33 boundary contact (most of its real
+#     edge borders exposed skin, not the jacket) -- must stay dropped. The visible white tank's
+#     largest fragment was 30.2% of the anchor area at 0.16 boundary contact -- must stay dropped.
+#     A handful of small, high-boundary-contact fragments of the SAME cluster as the skirt turned
+#     out to be specular highlights on the leather itself (confirmed by rendering them) -- keeping
+#     those is correct, not a regression.
+PATTERN_RING_PX = 3
+PATTERN_BOUNDARY_CONTACT_MIN = 0.5
+PATTERN_MAX_COMPONENT_FRAC = 0.20
+
+# V6.1 isolation (re-dispatch): after assembling the kept mask (anchor + same-fabric + pattern
+# fragments above), a knit pattern's fragments can still be separated from the anchor fabric and
+# from each other by a hairline of dropped/background pixels at their own edges -- especially
+# along the garment's own outer contour (collar, shoulder seam), where the gap isn't a fully
+# enclosed "hole" (see `_fill_small_holes`'s own docstring) so it survives that check untouched.
+# A small morphological closing bridges these hairline gaps so the knit reads as one piece; it is
+# bounded to never grow past `base` itself (the clothes-category evidence), so it cannot pull in
+# a whole separate garment even if that garment sits just past the closing radius. Tuned against
+# the Fairisle cardigan fixture above (visible shoulder/collar shredding before this closing).
+PATTERN_CLOSING_RADIUS_PX = 3
+
 # ARTIFACT_SPEC: crop to alpha bbox plus this padding fraction on every side.
 CROP_PAD_FRACTION = 0.02
 

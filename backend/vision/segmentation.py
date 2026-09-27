@@ -59,8 +59,9 @@ from contract.tools.color import delta_e2000
 from . import VisionError
 from .candidate_params import (
     CANDIDATE_MORPH_RADIUS_PX, CORE_PROBE_BAND, CORE_PROBE_MIN_COVERAGE, ISOLATION_KMEANS_K,
-    ISOLATION_MIN_PIXELS, ISOLATION_SAMPLE_PIXELS, REGION_PAD, REGION_PAD_FRACTION,
-    SAME_FABRIC_MAX_DELTA_E, SECONDARY_MAX_AREA_RATIO,
+    ISOLATION_MIN_PIXELS, ISOLATION_SAMPLE_PIXELS, PATTERN_BOUNDARY_CONTACT_MIN,
+    PATTERN_CLOSING_RADIUS_PX, PATTERN_MAX_COMPONENT_FRAC, PATTERN_RING_PX, REGION_PAD,
+    REGION_PAD_FRACTION, SAME_FABRIC_MAX_DELTA_E, SECONDARY_MAX_AREA_RATIO,
 )
 from .mp_models import CATEGORY_BACKGROUND, CATEGORY_BODY_SKIN, CATEGORY_CLOTHES, CATEGORY_FACE_SKIN, image_segmenter, pose_landmarker
 
@@ -226,6 +227,34 @@ def _drop_tiny_components(mask: np.ndarray, min_px: int) -> np.ndarray:
     return keep[labeled]
 
 
+def _pattern_fragments(dropped_mask: np.ndarray, kept_mask: np.ndarray, anchor_area: int) -> np.ndarray:
+    """V6.1 isolation (re-dispatch): of a cluster already rejected by the SAME_FABRIC/area-ratio
+    tests in `_isolate_by_color`, recover the individual connected components that are actually a
+    same-garment PATTERN interleaved with the kept fabric, rather than a competing garment --
+    see `candidate_params.PATTERN_MAX_COMPONENT_FRAC`'s docstring for the two-part test and how
+    it was tuned. Operates per connected component (not the whole cluster) since one cluster can
+    mix harmless same-garment specular highlights with a single genuine competing-garment piece
+    in a similar color."""
+    labeled, n = ndimage.label(dropped_mask)
+    if n == 0:
+        return np.zeros_like(dropped_mask)
+    keep = np.zeros_like(dropped_mask)
+    max_px = PATTERN_MAX_COMPONENT_FRAC * max(anchor_area, 1)
+    for i in range(1, n + 1):
+        comp = labeled == i
+        comp_px = int(comp.sum())
+        if comp_px == 0 or comp_px > max_px:
+            continue  # forms its own large contiguous region -- a competing garment, not a pattern
+        ring = ndimage.binary_dilation(comp, iterations=PATTERN_RING_PX) & ~comp
+        ring_total = int(ring.sum())
+        if ring_total == 0:
+            continue
+        boundary_contact = float((ring & kept_mask).sum()) / ring_total
+        if boundary_contact >= PATTERN_BOUNDARY_CONTACT_MIN:
+            keep |= comp
+    return keep
+
+
 def _isolate_by_color(rgb: np.ndarray, base: np.ndarray, core_probe: np.ndarray) -> np.ndarray:
     """V6 isolation: splits `base` (clothes ∩ pose-region ∩ largest-person, already restricted
     to its largest connected component) into color-coherent segments and keeps only the ones
@@ -289,6 +318,23 @@ def _isolate_by_color(rgb: np.ndarray, base: np.ndarray, core_probe: np.ndarray)
             keep_ids.append(cid)
 
     isolated = np.isin(label_img, keep_ids) & base
+
+    # V6.1 isolation (re-dispatch): rescue same-garment PATTERN fragments (a Fair Isle yoke's
+    # colorwork) that the SAME_FABRIC/area-ratio rules above wrongly dropped whole-cluster -- see
+    # `_pattern_fragments` and `candidate_params.PATTERN_MAX_COMPONENT_FRAC`.
+    dropped_mask = np.isin(label_img, [cid for cid in range(k) if cid not in keep_ids]) & base
+    if dropped_mask.any():
+        isolated = isolated | _pattern_fragments(dropped_mask, isolated, anchor_area)
+
+    # Bridge hairline gaps left between rescued pattern fragments and the kept fabric (see
+    # `candidate_params.PATTERN_CLOSING_RADIUS_PX`), bounded so closing can never grow the mask
+    # past the clothes-category evidence already in `base`.
+    if isolated.any() and PATTERN_CLOSING_RADIUS_PX > 0:
+        closed = ndimage.binary_dilation(isolated, iterations=PATTERN_CLOSING_RADIUS_PX)
+        closed = ndimage.binary_erosion(closed, iterations=PATTERN_CLOSING_RADIUS_PX)
+        closed &= ndimage.binary_dilation(base, iterations=PATTERN_CLOSING_RADIUS_PX)
+        isolated = _fill_small_holes(closed | isolated)
+
     # Not `_largest_component` again here: an open jacket's kept (anchor) cluster can be two
     # genuinely disconnected panels (the tank top between them was the OTHER cluster, already
     # excluded above) -- collapsing to one connected blob would throw away a whole real lapel.
