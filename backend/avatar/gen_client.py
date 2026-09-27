@@ -53,7 +53,7 @@ def generate_tryon(
         response = client.models.generate_content(
             model=MODEL,
             contents=contents,
-            config={"http_options": {"timeout": int(config.GEMINI_TIMEOUT_SECONDS * 1000)}},
+            config={"http_options": {"timeout": int(config.GEMINI_IMAGE_TIMEOUT_SECONDS * 1000)}},
         )
     except errors.APIError as e:
         raise GenerationError(f"Gemini call failed: {e}") from e

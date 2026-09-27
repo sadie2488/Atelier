@@ -19,6 +19,9 @@ from PIL import Image
 
 from backend import config
 from backend.avatar import background, compositing, face, gen_client, ids, service, skin, verify
+from backend.avatar.gen_client import generate_tryon as _real_generate_tryon  # bound before the
+# autouse fixture below monkeypatches gen_client.generate_tryon, so this name still reaches the
+# real function -- needed to test the real function's own behavior (the timeout it sends).
 from backend.avatar.pose_validation import ARMS_MESSAGE, STEP_BACK_MESSAGE, validate
 from backend.avatar.rig import compute_rig, translate, canvas_bbox
 from backend.avatar.draw import draw_avatar, draw_wireframe
@@ -600,6 +603,34 @@ def test_background_worker_never_makes_a_real_network_call_by_default(memory_db)
     must fail closed, never reach the network."""
     with pytest.raises(gen_client.GenerationError):
         gen_client.generate_tryon(None, None, None, None, False)
+
+
+def test_generate_tryon_sends_image_timeout_not_local_wait_timeout(monkeypatch):
+    """A7 bug fix (re-dispatch): the request deadline sent to Gemini must come from
+    GEMINI_IMAGE_TIMEOUT_SECONDS (default 60s), not GEMINI_TIMEOUT_SECONDS (8s, meant for local
+    waits) -- Gemini rejects deadlines under 10s ("Manually set deadline 8s is too short")."""
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key-for-test")
+    captured = {}
+
+    class _FakeModels:
+        def generate_content(self, model, contents, config):
+            captured["timeout_ms"] = config["http_options"]["timeout"]
+            return type("R", (), {"candidates": []})()
+
+    class _FakeClient:
+        def __init__(self, api_key):
+            self.models = _FakeModels()
+
+    import google.genai as genai
+    monkeypatch.setattr(genai, "Client", _FakeClient)
+
+    person = Image.new("RGB", (10, 10))
+    top = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    with pytest.raises(gen_client.GenerationError):  # fake response has no image -- expected
+        _real_generate_tryon(person, top, None, None, False)
+
+    assert captured["timeout_ms"] == config.GEMINI_IMAGE_TIMEOUT_SECONDS * 1000
+    assert captured["timeout_ms"] >= 10000
 
 
 # ---------------------------------------------------------------- A7 fix 1: dress + bottom (v2)
