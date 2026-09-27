@@ -14,7 +14,7 @@ export default function ResetPage() {
     <main className="flow-page" aria-label="Reset demo">
       <div style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center", maxWidth: 420, margin: "20vh auto 0" }}>
         <h1 style={{ font: "italic 500 32px var(--font-display)", margin: 0 }}>Reset demo</h1>
-        <p style={{ margin: 0, color: "var(--muted-foreground)" }}>Closet back to the demo items; saved outfits, stylist defaults and the demo switch cleared.</p>
+        <p style={{ margin: 0, color: "var(--muted-foreground)" }}>Closet back to the demo items; stylist defaults and the demo switch cleared (saved outfits are kept).</p>
         {state === "idle" && <button type="button" className="solid-btn" onClick={run}>Reset to default</button>}
         {state === "busy" && <p>Resetting…</p>}
         {typeof state === "object" && (

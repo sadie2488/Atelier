@@ -9,7 +9,7 @@ export function DemoResetShortcut() {
     const onKey = async (e: KeyboardEvent) => {
       if (!(e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === "r")) return;
       e.preventDefault();
-      if (!window.confirm("Reset the demo to default? (closet back to the demo items, saved outfits and defaults cleared)")) return;
+      if (!window.confirm("Reset the demo to default? (closet back to the demo items; stylist defaults cleared; saved outfits kept)")) return;
       try {
         const r = await resetDemo();
         window.alert(`Demo reset: ${r.items} items, ${r.archived.length} archived, ${r.restored.length} restored.`);
