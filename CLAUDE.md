@@ -16,7 +16,7 @@ past what the task's exit criteria need, and move on as soon as they hold.
   reads its agent file, then `backend/<lane>/CLAUDE.md`, then its section of
   `contract/DECISIONS.md`. A lane edits only its own paths; `.claude/hooks/scope_guard.py`
   blocks everything else, and blocks git.
-- **The frontend** (Next.js in `frontend/`) builds against `coordination/BACKEND_API.md` and
+- **The frontend agent** (Next.js in `frontend/`, second laptop) follows `coordination/FRONTEND_AGENT.md` (role, rules, read order) and builds against `coordination/BACKEND_API.md`; it
   asks for changes in `coordination/FRONTEND_REQUESTS.md`.
 
 `TASKS.md`, `STATUS.md` and the `/task` command describe the earlier two-lane plan and are
