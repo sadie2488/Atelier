@@ -298,6 +298,19 @@
         "everyday_neutral": {
           "title": "Everyday Neutral",
           "type": "boolean"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "maxLength": 60,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
         }
       },
       "required": [
@@ -694,5 +707,5 @@
       "type": "string"
     }
   },
-  "title": "Atelier contract 2.0.0"
+  "title": "Atelier contract 2.1.0"
 }

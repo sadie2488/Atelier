@@ -21,7 +21,7 @@ from .enums import (
 )
 from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "2.0.0"
+CONTRACT_VERSION = "2.1.0"
 
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
 SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
@@ -57,6 +57,8 @@ class ExtractedColor(Strict):
     family: str                          # colors.json family of `name`, or "unmapped"
     is_neutral: bool                     # chroma < NEUTRAL_CHROMA_MAX; never from the name
     everyday_neutral: bool               # colors.json flag of `name`; false when unmapped
+    display_name: Optional[str] = Field(default=None, max_length=60)  # human-friendly name for the UI:
+                                         # nearest contract/color_names.json entry (xkcd survey); display only
 
     @field_validator("lab")
     @classmethod

@@ -99,3 +99,15 @@ def nearest_color(lab):
     if delta_e2000(lab, entry["lab"]) > limit:
         return "unmapped", "unmapped", False
     return name, entry["family"], bool(entry["everyday_neutral"])
+
+
+@lru_cache(maxsize=1)
+def _display_names():
+    data = json.loads((Path(__file__).resolve().parents[1] / "color_names.json").read_text(encoding="utf-8"))
+    return [(c["name"], tuple(c["lab"])) for c in data["colors"]]
+
+
+def display_name(lab) -> str:
+    """Human-friendly name for a measured color: nearest xkcd color-survey entry by CIEDE2000.
+    Display only; styling uses colors.json families (nearest_color)."""
+    return min(_display_names(), key=lambda nl: delta_e2000(lab, nl[1]))[0]
