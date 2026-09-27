@@ -11,7 +11,8 @@ over fidelity, and A-R10's ΔE check gates the swap on color only.
 """
 from backend.config import GEMINI_IMAGE_MODEL
 
-PROMPT_VERSION = "v3"  # v3: the face must not be edited at all; full-length framing (human request)
+PROMPT_VERSION = "v4"  # v4: the clothes must fit naturally (human request)
+# v3: the face must not be edited at all; full-length framing (human request)
 # v2: a dress outfit now also sends and describes the bottom (A-R5/A-R7)
 MODEL = GEMINI_IMAGE_MODEL  # pinned; never "latest" (A-R8)
 
@@ -20,6 +21,11 @@ _FACE = (
     "features, expression, hair, skin tone, makeup and accessories pixel-faithful to the first "
     "image. Do not beautify, retouch, re-light, reshape, or replace the face, and do not swap in "
     "a different person."
+)
+
+_FIT = (
+    "Make the clothes fit naturally: sized to this person's body, with realistic drape, folds, "
+    "and shadows, as if they were really wearing them."
 )
 
 _PRESERVE = (
@@ -57,5 +63,5 @@ def build_prompt(has_jacket: bool, is_dress: bool) -> str:
     )
     return (
         "You are compositing a virtual try-on photo from reference images. The first image is "
-        "the person to dress. " + garment_line + jacket_line + " " + _FACE + " " + _PRESERVE
+        "the person to dress. " + garment_line + jacket_line + " " + _FIT + " " + _FACE + " " + _PRESERVE
     )
