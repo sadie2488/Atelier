@@ -6,7 +6,7 @@ import { Button } from "@/components/Button";
 import { Plus, X } from "@/components/icons";
 import { Carousel, type Study } from "@/components/closet/Carousel";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { CATEGORIES, type Category, type ExtractedColor, type Item } from "@/lib/api";
+import { ApiError, CATEGORIES, renameItem, type Category, type ExtractedColor, type Item } from "@/lib/api";
 import { useIsMobile, useItems, useStoredAvatar } from "@/lib/hooks";
 
 type ClosetStudy = Study & { items: Item[]; type: Category };
@@ -22,6 +22,77 @@ function SwatchChip({ color, label }: { color: ExtractedColor; label: string }) 
     <div className="swatch">
       <span className="swatch-color" style={{ background: color.hex }} />
       <span><small>{label}</small>{color.display_name ?? color.name}{color.is_neutral ? <em className="neutral-tag">neutral</em> : color.everyday_neutral ? <em className="neutral-tag">everyday neutral</em> : null}</span>
+    </div>
+  );
+}
+
+const ATTRIBUTE_LABELS: [string, string][] = [
+  ["subcategory", "Type"], ["sleeve", "Sleeve"], ["neckline", "Neckline"], ["material", "Material"], ["fit", "Fit"],
+  ["length", "Length"], ["pattern", "Pattern"], ["closure", "Closure"], ["formality", "Formality"],
+];
+
+function AttributeList({ attributes }: { attributes?: Item["attributes"] }) {
+  const rows = ATTRIBUTE_LABELS.flatMap(([key, label]) => {
+    const value = attributes?.[key];
+    return typeof value === "string" && value.trim() ? [{ key, label, value: value.trim() }] : [];
+  });
+  if (!rows.length) return null;
+  return (
+    <dl className="detail-attributes">
+      {rows.map((row) => (
+        <div key={row.key}><dt>{row.label}</dt><dd>{row.value}</dd></div>
+      ))}
+    </dl>
+  );
+}
+
+const Pencil = () => (
+  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
+  </svg>
+);
+const Check = () => (
+  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+);
+
+// Inline rename: pencil on the left of the name; Enter/check saves, Esc/X cancels. The item id never changes.
+function DetailName({ item, onRenamed }: { item: Item; onRenamed: (updated: Item) => void }) {
+  const current = item.retailer_item_name ?? "";
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(current);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const trimmed = draft.trim();
+
+  const start = () => { setDraft(current); setError(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setError(null); };
+  const save = async () => {
+    if (!trimmed || saving) return;
+    if (trimmed === current) { setEditing(false); return; }
+    setSaving(true); setError(null);
+    try { onRenamed(await renameItem(item.id, trimmed)); setEditing(false); }
+    catch (e) { setError(e instanceof ApiError && e.code !== "internal_error" ? e.message : "Couldn't rename this piece. The old name is kept."); }
+    finally { setSaving(false); }
+  };
+
+  if (!editing) {
+    return (
+      <div className="detail-name">
+        <button type="button" className="rename-btn" aria-label="Rename" onClick={start}><Pencil /></button>
+        <h2>{item.retailer_item_name ?? "Untitled piece"}</h2>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <form className="rename-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <input className="rename-input" aria-label="Garment name" value={draft} maxLength={80} autoFocus disabled={saving}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); cancel(); } }} />
+        <button type="submit" className="rename-btn" aria-label="Save name" disabled={!trimmed || saving}><Check /></button>
+        <button type="button" className="rename-btn" aria-label="Cancel rename" onClick={cancel} disabled={saving}><X size={16} strokeWidth={1.8} /></button>
+      </form>
+      {error && <p className="rename-error" role="status">{error}</p>}
     </div>
   );
 }
@@ -110,7 +181,8 @@ export default function ClosetPage() {
             <img src={detail.cutout_url} alt={detail.retailer_item_name ?? detail.garment_type} />
             <div className="detail-info">
               <p className="detail-kicker">{detail.category} · {detail.garment_type}</p>
-              <h2>{detail.retailer_item_name ?? "Untitled piece"}</h2>
+              <DetailName key={detail.id} item={detail} onRenamed={(updated) => { setDetail(updated); itemsQ.refetch(); }} />
+              <AttributeList attributes={detail.attributes} />
               <div className="color-compare">
                 <SwatchChip color={detail.primary_color} label="extracted" />
                 {detail.secondary_color && <SwatchChip color={detail.secondary_color} label="secondary" />}

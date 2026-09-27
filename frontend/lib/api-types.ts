@@ -121,6 +121,7 @@ export type ItemId1 = string;
 export type OutfitCount = number;
 export type TempHandle1 = string;
 export type Ok = true;
+export type Name1 = string;
 export type RenderId = string;
 export type RenderStatus = "pending" | "done" | "failed";
 export type LocalUrl = string;
@@ -156,6 +157,7 @@ export interface AtelierContract {
   PaletteSwatch?: PaletteSwatch;
   RejectRequest?: RejectRequest;
   RejectResponse?: RejectResponse;
+  RenameRequest?: RenameRequest;
   RenderJob?: RenderJob;
   RenderRequest?: RenderRequest;
   RenderStatus?: RenderStatus;
@@ -321,6 +323,12 @@ export interface RejectRequest {
 }
 export interface RejectResponse {
   ok: Ok;
+}
+/**
+ * PATCH /items/{slug}. Renames a saved item (sets retailer_item_name). 2.3.0, additive.
+ */
+export interface RenameRequest {
+  name: Name1;
 }
 /**
  * POST /render and GET /render/{render_id}. local_url is always present and correct;
