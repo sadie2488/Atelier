@@ -45,6 +45,32 @@ in order:
      garment's segment is dropped even though it was 4-connected to the kept one.
 Neither step touches skin exclusion (still MediaPipe categories only, V-S1) or uses color to
 detect skin -- only to separate garments that the segmenter itself does not distinguish.
+
+V2 isolation (tight waist-down crops, re-dispatch): five bottoms fixtures (two wide-leg/baggy
+jeans, three shorts) still cut out badly even after V6.2's degenerate-box and too-short-box
+fallbacks, because BlazePose can HALLUCINATE a plausible-looking (non-degenerate, tall-enough)
+leg pose on a hip-only or tight waist-down crop -- landmark visibility/presence read high even
+though the landmarks are spatially wrong, or (for the two wide-leg jeans) are roughly right but
+the garment's fabric flares well past the leg landmarks even with REGION_PAD's already-generous
+pad_x. Two fixes:
+  1. `_region_coverage_untrustworthy`: a ground-truth check independent of BlazePose's own
+     confidence scores -- the pose-derived region box should contain most of the `clothes`-
+     category pixels visible ANYWHERE in the frame, since these are single-garment product
+     photos. Below `candidate_params.MIN_BOTTOM_REGION_CLOTHES_COVERAGE_FRAC`, the landmarks are
+     distrusted just like the pre-existing degenerate/too-short cases: the box widens to the
+     whole frame and isolation becomes pose-free (`_fallback_core_probe_mask` +
+     `_isolate_by_color`, already built for V6.2's other two fallback triggers) -- exactly the
+     "multiclass clothes mask over the whole frame, split out any top garment above the
+     waistband by color" behavior this was dispatched to build, reusing V6's own color-isolation
+     machinery rather than a separate implementation.
+  2. `_bbox_fill_ratio` + `RECTANGULAR_BBOX_FILL_MAX`: a last-resort safety net, checked after (1)
+     already ran. A mask whose alpha fills more than 90% of its own bounding box has no garment
+     silhouette carved out of it -- it's just the region box itself (confirmed: the pocket-crop
+     fixture's pre-fix mask filled 95.1% of its bbox). If landmarks were still trusted going in
+     (fix (1) didn't already trigger) and the resulting mask is this rectangular, retry once with
+     the same pose-free whole-frame fallback as (1). This is deliberately narrow -- several
+     correctly-isolated shorts fixtures legitimately reach 88-91% bbox fill -- so it never
+     overrides an already-good, pose-trusted isolation, only a clearly-rectangular one.
 """
 from dataclasses import dataclass
 
@@ -59,9 +85,10 @@ from contract.tools.color import delta_e2000
 from . import VisionError
 from .candidate_params import (
     CANDIDATE_MORPH_RADIUS_PX, CORE_PROBE_BAND, CORE_PROBE_MIN_COVERAGE, ISOLATION_KMEANS_K,
-    ISOLATION_MIN_PIXELS, ISOLATION_SAMPLE_PIXELS, PATTERN_BOUNDARY_CONTACT_MIN,
-    PATTERN_CLOSING_RADIUS_PX, PATTERN_MAX_COMPONENT_FRAC, PATTERN_RING_PX, REGION_PAD,
-    REGION_PAD_FRACTION, SAME_FABRIC_MAX_DELTA_E, SECONDARY_MAX_AREA_RATIO,
+    ISOLATION_MIN_PIXELS, ISOLATION_SAMPLE_PIXELS, MIN_BOTTOM_REGION_CLOTHES_COVERAGE_FRAC,
+    PATTERN_BOUNDARY_CONTACT_MIN, PATTERN_CLOSING_RADIUS_PX, PATTERN_MAX_COMPONENT_FRAC,
+    PATTERN_RING_PX, RECTANGULAR_BBOX_FILL_MAX, REGION_PAD, REGION_PAD_FRACTION,
+    SAME_FABRIC_MAX_DELTA_E, SECONDARY_MAX_AREA_RATIO, WAISTBAND_EXCLUDE_MAX_ABOVE_FRAC,
 )
 from .mp_models import CATEGORY_BACKGROUND, CATEGORY_BODY_SKIN, CATEGORY_CLOTHES, CATEGORY_FACE_SKIN, image_segmenter, pose_landmarker
 
@@ -273,6 +300,17 @@ def _fallback_core_probe_mask(garment_type: GarmentType, w: int, h: int) -> np.n
     return _box_mask(box, w, h)
 
 
+def _bbox_fill_ratio(mask: np.ndarray) -> float:
+    """V2: fraction of `mask`'s own bounding box that is actually True -- see
+    `candidate_params.RECTANGULAR_BBOX_FILL_MAX`'s docstring. 0.0 for an empty mask (not
+    rectangular; just empty -- callers already handle the empty case separately)."""
+    ys, xs = np.where(mask)
+    if xs.size == 0:
+        return 0.0
+    bbox_area = (int(xs.max()) - int(xs.min()) + 1) * (int(ys.max()) - int(ys.min()) + 1)
+    return float(mask.sum()) / bbox_area
+
+
 def _drop_tiny_components(mask: np.ndarray, min_px: int) -> np.ndarray:
     """Keeps every connected component at or above `min_px`, dropping only noise-sized flecks.
     Unlike `_largest_component`, this can keep more than one component."""
@@ -314,13 +352,23 @@ def _pattern_fragments(dropped_mask: np.ndarray, kept_mask: np.ndarray, anchor_a
     return keep
 
 
-def _isolate_by_color(rgb: np.ndarray, base: np.ndarray, core_probe: np.ndarray) -> np.ndarray:
+def _isolate_by_color(
+    rgb: np.ndarray, base: np.ndarray, core_probe: np.ndarray,
+    waistband_exclude_frac: float | None = None,
+) -> np.ndarray:
     """V6 isolation: splits `base` (clothes ∩ pose-region ∩ largest-person, already restricted
     to its largest connected component) into color-coherent segments and keeps only the ones
     that dominate `core_probe` -- see this module's docstring for why (the `clothes` category
     does not distinguish one garment from another). Falls back to returning `base` unchanged
     whenever there isn't enough signal to safely split it (too few pixels, degenerate probe, or
-    a k-means fit that finds no acceptable segment)."""
+    a k-means fit that finds no acceptable segment).
+
+    V2 isolation (re-dispatch): `waistband_exclude_frac`, when given (the pose-free bottoms
+    fallback only -- see `candidate_params.WAISTBAND_EXCLUDE_MAX_ABOVE_FRAC`), drops any
+    non-anchor cluster whose own pixels sit mostly above `core_probe`'s own top edge (the
+    waistband line) even if it would otherwise pass the SAME_FABRIC/secondary-area-ratio tests
+    below -- catching a cropped top garment bleeding in from above that happens to land close in
+    Lab to the bottoms' own (often pale/light-wash) color."""
     total = int(base.sum())
     if total < ISOLATION_MIN_PIXELS:
         return base
@@ -370,7 +418,22 @@ def _isolate_by_color(rgb: np.ndarray, base: np.ndarray, core_probe: np.ndarray)
     anchor_lab = tuple(km.cluster_centers_[anchor_cid])
     keep_ids = [anchor_cid]
     anchor_area = max(cluster_area[anchor_cid], 1)
+
+    # V2 (re-dispatch): waistband-line row for the above-the-line exclusion below -- `core_probe`
+    # is a horizontal band, so its own topmost True row is the line.
+    waistband_row = None
+    if waistband_exclude_frac is not None:
+        probe_rows = np.where(core_probe.any(axis=1))[0]
+        if probe_rows.size:
+            waistband_row = int(probe_rows.min())
+
     for cov, cid in coverage[1:]:
+        if waistband_row is not None:
+            cluster_mask = label_img == cid
+            cluster_px = max(cluster_area[cid], 1)
+            above_frac = float(cluster_mask[:waistband_row, :].sum()) / cluster_px
+            if above_frac > waistband_exclude_frac:
+                continue  # concentrated above the waistband line -- a different (top) garment
         if delta_e2000(tuple(km.cluster_centers_[cid]), anchor_lab) < SAME_FABRIC_MAX_DELTA_E:
             keep_ids.append(cid)
         elif cov >= CORE_PROBE_MIN_COVERAGE and cluster_area[cid] <= SECONDARY_MAX_AREA_RATIO * anchor_area:
@@ -448,7 +511,6 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
         # implausible; `clothes` category still excludes background/skin/hair.
         box = (0.0, 0.0, float(w), float(h) * 0.97)
         landmarks_trusted = False
-    region_mask = _box_mask(box, w, h)
 
     seg_result = image_segmenter().segment(mp_image)
     category = np.asarray(seg_result.category_mask.numpy_view())
@@ -458,24 +520,57 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
     skin_mask = (category == CATEGORY_BODY_SKIN) | (category == CATEGORY_FACE_SKIN)
     non_background = category != CATEGORY_BACKGROUND
 
-    base = _largest_component(clothes & region_mask)
     is_bottom = garment_type in (GarmentType.pants, GarmentType.skirt, GarmentType.shorts)
-    if landmarks_trusted:
-        core_probe = _core_probe_mask(garment_type, points, w, h)
-        base = _isolate_by_color(rgb, base, core_probe)
-    elif is_bottom:
-        # V6.2 (bug (b)): unlike tops/jacket/dress below, still isolate/split by color even
-        # though the pose region fell back to (near) the whole frame -- previously skipped
-        # entirely here ("no useful probe signal"), which is exactly the case that most needed
-        # it: a whole-frame `base` is the likeliest to have swept in a genuinely different
-        # garment (e.g. a cropped top above a pair of shorts) alongside the target bottoms. The
-        # probe itself just can't be landmark-positioned in this case -- see
-        # `_fallback_core_probe_mask`'s geometric stand-in, tuned for bottoms specifically.
-        core_probe = _fallback_core_probe_mask(garment_type, w, h)
-        base = _isolate_by_color(rgb, base, core_probe)
-    # else (shirt/jacket/coat/dress, landmarks not trusted): unchanged from V6 -- a core probe
-    # over the whole image isn't a useful signal for those garment types' probe shapes, so skip
-    # isolation and keep `base` as the largest clothes-in-frame component.
+
+    # V2 (tight waist-down crops, re-dispatch): the box above passed the degenerate/too-short
+    # shape checks, but BlazePose can still have hallucinated a spatially-wrong (or, for a baggy/
+    # wide-leg garment, too-narrow) leg pose with misleadingly high visibility/presence -- see
+    # this module's V2 docstring. Ground-truth check, independent of BlazePose's own confidence:
+    # the box should contain most of the `clothes` pixels visible anywhere in the frame.
+    if landmarks_trusted and is_bottom:
+        whole_frame_clothes = int(clothes.sum())
+        if whole_frame_clothes > 0:
+            clothes_in_box = int((clothes & _box_mask(box, w, h)).sum())
+            if clothes_in_box < MIN_BOTTOM_REGION_CLOTHES_COVERAGE_FRAC * whole_frame_clothes:
+                box = (0.0, 0.0, float(w), float(h))
+                landmarks_trusted = False
+
+    def _isolate(box, landmarks_trusted):
+        region_mask = _box_mask(box, w, h)
+        base = _largest_component(clothes & region_mask)
+        if landmarks_trusted:
+            core_probe = _core_probe_mask(garment_type, points, w, h)
+            return _isolate_by_color(rgb, base, core_probe)
+        if is_bottom:
+            # V6.2 (bug (b)): unlike tops/jacket/dress below, still isolate/split by color even
+            # though the pose region fell back to (near) the whole frame -- previously skipped
+            # entirely here ("no useful probe signal"), which is exactly the case that most
+            # needed it: a whole-frame `base` is the likeliest to have swept in a genuinely
+            # different garment (e.g. a cropped top above a pair of shorts) alongside the target
+            # bottoms. The probe itself just can't be landmark-positioned in this case -- see
+            # `_fallback_core_probe_mask`'s geometric stand-in, tuned for bottoms specifically.
+            core_probe = _fallback_core_probe_mask(garment_type, w, h)
+            return _isolate_by_color(
+                rgb, base, core_probe, waistband_exclude_frac=WAISTBAND_EXCLUDE_MAX_ABOVE_FRAC,
+            )
+        # else (shirt/jacket/coat/dress, landmarks not trusted): unchanged from V6 -- a core
+        # probe over the whole image isn't a useful signal for those garment types' probe
+        # shapes, so skip isolation and keep `base` as the largest clothes-in-frame component.
+        return base
+
+    base = _isolate(box, landmarks_trusted)
+
+    # V2 (re-dispatch): last-resort safety net, only reached if the coverage-ratio fix above
+    # didn't already distrust the landmarks. A mask this rectangular has no garment silhouette
+    # carved out of it -- retry once, pose-free, over the whole frame (see
+    # `candidate_params.RECTANGULAR_BBOX_FILL_MAX`'s docstring for why this is narrow enough to
+    # never touch an already-good, pose-trusted isolation).
+    if landmarks_trusted and is_bottom and base.any() and _bbox_fill_ratio(base) > RECTANGULAR_BBOX_FILL_MAX:
+        box = (0.0, 0.0, float(w), float(h))
+        landmarks_trusted = False
+        base = _isolate(box, landmarks_trusted)
+
+    region_mask = _box_mask(box, w, h)
 
     variants: dict[str, np.ndarray] = {}
     for name, radius in CANDIDATE_MORPH_RADIUS_PX.items():
