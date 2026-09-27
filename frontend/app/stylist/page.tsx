@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { CATEGORIES, generateOutfits, type Category, type Item } from "@/lib/api";
-import { useItems, useStoredAvatar } from "@/lib/hooks";
+import { CATEGORIES, DEMO_OUTFITS, generateOutfits, type Category, type Item } from "@/lib/api";
+import { useDemoToggle, useItems, useStoredAvatar } from "@/lib/hooks";
 import { useRender } from "@/lib/useRender";
 
 type Lists = Record<Category, Item[]>;
@@ -35,6 +35,10 @@ export default function StylistPage() {
   const [notice, setNotice] = useState<"none" | "failed" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
   const trayApplied = useRef(false);
+  const demo = useDemoToggle();
+  const plannedIdx = useRef(0); // next planned demo outfit (cycles)
+  // Toggling the demo avatar restarts the planned sequence and drops the old explanation.
+  useEffect(() => { plannedIdx.current = 0; setExplanation(null); setWhy(null); }, [demo.on]);
 
   // Lists keep the server's order (newest first); only "generate outfit" moves items to position 0.
   useEffect(() => {
@@ -79,6 +83,19 @@ export default function StylistPage() {
     // Clear the previous look at once so only the plain avatar + "styling…" show while we wait.
     setExplanation(null); setWhy(null); clearRender();
     try {
+      if (demo.on && DEMO_OUTFITS.length) {
+        // Demo: planned outfits in order (cycling); explanation only if the generator returned the same combo.
+        const plan = DEMO_OUTFITS[plannedIdx.current % DEMO_OUTFITS.length];
+        plannedIdx.current += 1;
+        const outfits = await generateOutfits(5).catch(() => []);
+        const hit = outfits.find((o) => o.top_id === plan.top_id && o.bottom_id === plan.bottom_id && (o.jacket_id ?? null) === plan.jacket_id);
+        setLists({ tops: toFront(lists.tops, plan.top_id), bottoms: toFront(lists.bottoms, plan.bottom_id), jackets: toFront(lists.jackets, plan.jacket_id) });
+        setIdx({ tops: 0, bottoms: 0, jackets: 0 });
+        setNoJacket(!plan.jacket_id);
+        if (hit) { setExplanation(hit.explanation); setWhy({ strategy: hit.strategy, score: hit.score }); }
+        requestRender(plan.top_id, plan.bottom_id, plan.jacket_id);
+        return;
+      }
       const outfits = await generateOutfits(5);
       const best = outfits[0];
       if (!best) { setNotice("none"); return; }

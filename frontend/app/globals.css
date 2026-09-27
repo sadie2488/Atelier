@@ -126,7 +126,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .hanger-trigger:hover, .hanger-trigger:focus-visible { background: none; }
 .hanger-trigger svg { width: 43px; height: 40px; transition: transform .28s cubic-bezier(.2,.8,.2,1); transform-origin: center; }
 .hanger-trigger:hover svg, .hanger-trigger:focus-visible svg { transform: scale(1.22); }
-.hanger-dropdown { position: absolute; top: calc(100% + 6px); left: 0; min-width: 165px; padding: 10px 0; display: flex; flex-direction: column; background: color-mix(in oklab, var(--background) 30%, transparent); backdrop-filter: blur(10px) saturate(140%); border: 1px solid color-mix(in oklab, var(--border) 60%, transparent); box-shadow: 0 14px 32px -20px var(--foreground); animation: menu-appear .2s ease-out; }
+.hanger-dropdown { position: absolute; top: calc(100% + 6px); left: 0; min-width: 190px; padding: 10px 0; display: flex; flex-direction: column; background: color-mix(in oklab, var(--background) 30%, transparent); backdrop-filter: blur(10px) saturate(140%); border: 1px solid color-mix(in oklab, var(--border) 60%, transparent); box-shadow: 0 14px 32px -20px var(--foreground); animation: menu-appear .2s ease-out; }
 .hanger-link { display: block; padding: 10px 19px; color: var(--foreground); font: 500 16px/1.4 var(--font-sans); text-decoration: none; transition: background .2s, color .2s; }
 .hanger-link:hover, .hanger-link:focus-visible { background: var(--muted); color: var(--primary); }
 .hanger-link--current { font-weight: 700; }
@@ -400,3 +400,12 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
   .archive-content { padding-bottom: 84px; }
   .has-tray .archive-content { padding-bottom: 164px; }
 }
+/* demo avatar toggle in the hanger menu */
+.hanger-demo { margin-top: 6px; padding: 10px 19px 4px; border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent); display: grid; gap: 4px; }
+.hanger-switch { white-space: nowrap; text-align: left; min-height: 0; letter-spacing: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 0; background: none; border: 0; color: var(--foreground); font: 500 14px/1.4 var(--font-sans); cursor: pointer; }
+.hanger-switch:disabled { opacity: .45; cursor: default; }
+.hanger-switch-track { position: relative; width: 32px; height: 18px; flex: none; border-radius: 999px; background: var(--muted); border: 1px solid var(--border); transition: background .2s; }
+.hanger-switch-knob { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--foreground); transition: transform .2s; }
+.hanger-switch.is-on .hanger-switch-track { background: var(--primary); border-color: var(--primary); }
+.hanger-switch.is-on .hanger-switch-knob { transform: translateX(14px); background: var(--primary-foreground); }
+.hanger-demo small { font: 500 11px var(--font-sans); color: var(--muted-foreground); }

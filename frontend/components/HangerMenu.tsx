@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
+import { setDemoOn } from "@/lib/api";
+import { useDemoToggle } from "@/lib/hooks";
 
 const links = [
   { label: "Home", to: "/" },
@@ -17,6 +19,7 @@ export function HangerMenu() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const demo = useDemoToggle();
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +54,13 @@ export function HangerMenu() {
               {label}
             </Link>
           ))}
+          <div className="hanger-demo">
+            <button type="button" role="switch" aria-checked={demo.on} disabled={!demo.available} className={`hanger-switch${demo.on ? " is-on" : ""}`} onClick={() => setDemoOn(!demo.on)}>
+              <span>demo avatar</span><span className="hanger-switch-track" aria-hidden="true"><span className="hanger-switch-knob" /></span>
+            </button>
+            {!demo.available && <small>demo avatar not set yet</small>}
+            {demo.failed && <small>demo avatar unavailable</small>}
+          </div>
         </nav>
       )}
     </div>

@@ -39,6 +39,8 @@ export function useRender(avatarId: string | undefined) {
   const clearRender = useCallback(() => { ctlRef.current?.abort(); setLoading(false); setView(null); }, []);
 
   useEffect(() => () => { ctlRef.current?.abort(); }, []);
+  // Avatar switched (e.g. the demo toggle): drop any render made for the previous avatar.
+  useEffect(() => { ctlRef.current?.abort(); setLoading(false); setView(null); }, [avatarId]);
 
   return { view, loading, requestRender, clearRender };
 }
