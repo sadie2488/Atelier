@@ -1,6 +1,6 @@
 # Sponsor track submissions
 
-Draft text for three sponsor tracks. Team: [TEAM]. Repo: [LINK]. Deployed app: [LINK]. Fill in
+Draft text for five sponsor tracks. Team: [TEAM]. Repo: [LINK]. Deployed app: [LINK]. Fill in
 placeholders before submitting; nothing else in this file should be treated as final copy
 without a read-through against whatever each track's submission form actually asks for.
 
@@ -134,5 +134,91 @@ back a noticeably different color) without needing to solve full visual fidelity
 part was writing a generation prompt that reliably preserves the person's face and body identity
 rather than drifting toward a generic figure, which took a small versioned eval set of
 before/after pairs re-run on every prompt change rather than being tuned by eye once.
+
+**Team:** [TEAM] · **Links:** repo [LINK], deployed app [LINK]
+
+---
+
+## Microsoft
+
+### Summary
+
+Atelier's brief for this track was to let a person complete a real task with no chat window:
+scan into an avatar, add a garment, and get a dressed outfit back in one click, with every
+AI-shaped step happening behind a structured UI rather than a prompt box. There is no free-text
+input anywhere in the app, and no point where the user is typing to a model or reading a model's
+raw output unmediated. Segmentation, color measurement, and outfit ranking are deterministic
+code; the two places an LLM is involved — image generation and a one-line explanation — are each
+called with structured inputs, produce constrained outputs, and are wrapped so their failure is
+invisible to the person using the app.
+
+### How we used it
+
+- **A real task, not a conversation.** The end-to-end path is scan a photo -> add a garment ->
+  tap Generate outfit -> tap See it on me, four button presses and two camera captures, with no
+  step where the user composes a sentence to steer the system.
+- **AI behind structured UI, not in front of the user.** Garment segmentation, Lab-space color
+  measurement, and outfit scoring are plain deterministic code triggered by a photo upload or a
+  button tap. The generated try-on and the outfit explanation are the only model calls in the
+  app, and both take structured inputs (an outfit's garment IDs and colors, a person photo plus
+  garment references) and return a constrained output (an image, or one short sentence) — never
+  a model reading or writing open-ended text on the user's behalf.
+- **No free-text input anywhere.** There is no chat box, no prompt field, and no place a user's
+  own words are ever sent to a model. The scorer that ranks outfits never re-ranks based on
+  anything an LLM returns, so the deterministic ranking can't be steered by a clever prompt
+  because there is no prompt to give it.
+- **Accessible, forgiving flow.** Pose capture gives a specific, actionable correction ("move
+  your arms away from your body") rather than a bare failure, and every optional enhancement —
+  the generated try-on, the written explanation — degrades quietly to something already on
+  screen rather than surfacing an error state a user has to interpret or recover from.
+
+### What was hard
+
+The natural design for "AI-powered outfit advice" is a chat box, and resisting that default took
+active pushback throughout, not a one-time decision. Concretely: keeping the outfit ranking pure
+and deterministic meant the LLM (Gemini) was never allowed to re-rank or explain-and-reorder —
+only to write a caption for a ranking that was already final — which meant writing two entirely
+separate code paths (scoring and explaining) that most "AI stylist" demos would have collapsed
+into one prompt. The other hard part was the pose-correction messages: getting them specific
+enough to be genuinely actionable ("move your arms away from your body") rather than a generic
+"try again," without turning the capture flow into its own multi-turn dialogue.
+
+**Team:** [TEAM] · **Links:** repo [LINK], deployed app [LINK]
+
+---
+
+## Assurant
+
+### Summary
+
+This is a modest, honest fit rather than a deep integration: Atelier handles a genuinely
+sensitive input — a photo of the user's face and body — and we want to be plain about what that
+means today rather than overstate a privacy posture we haven't fully built. There is a consent
+screen before any face photo is sent anywhere, secrets are never in the codebase or the built
+image, and it's stated here directly that there is no user-facing "delete my data" action yet.
+
+### How we used it
+
+- **Consent before capture.** The scan screen shows a consent notice before the camera is used,
+  stating plainly that the photo is uploaded to Google's Gemini API for the try-on generation.
+  This appears before capture, not after, and isn't buried in a settings screen.
+- **What is stored, stated plainly.** The scan photo is kept, not discarded after use — the
+  try-on generation step needs it, and re-generating a fresh try-on later requires having it
+  again. Garment images, avatars (the real-body cutout and the line-art wireframe), and rendered
+  outfit combinations all live in MongoDB Atlas, with media in GridFS. Nothing here should read
+  as data being minimized more than it actually is.
+- **Secrets never in the image or the repo.** `MONGODB_URI` and `GEMINI_API_KEY` are supplied as
+  environment variables at deploy time, never committed, and never baked into the Docker image;
+  `.dockerignore` and `.gitignore` both exclude every `.env` file.
+
+### What was hard
+
+Being honest about the gap rather than papering over it. There is **no "delete my data" action**
+in the product today — a user who scans in cannot yet remove their photo, avatar, or renders
+themselves, and that is a real limitation, not an oversight we're glossing over. We're listing it
+here as **future work**: a delete endpoint that removes a user's scan photo, avatar documents,
+and any renders derived from them, from both MongoDB and GridFS, plus a visible control for it in
+the UI. We'd rather submit this track with that gap stated outright than imply a data-lifecycle
+guarantee the hackathon build doesn't actually enforce.
 
 **Team:** [TEAM] · **Links:** repo [LINK], deployed app [LINK]
