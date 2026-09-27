@@ -1,15 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { CATEGORIES, createRender, generateOutfits, pollRender, type Category, type Item } from "@/lib/api";
+import { CATEGORIES, generateOutfits, type Category, type Item } from "@/lib/api";
 import { useItems, useStoredAvatar } from "@/lib/hooks";
+import { useRender } from "@/lib/useRender";
 
 type Lists = Record<Category, Item[]>;
-type RenderView = { local?: string; generated?: string; pending: boolean };
 
 const toFront = (list: Item[], id: string | null | undefined) => {
   const hit = id ? list.find((g) => g.id === id) : undefined;
@@ -20,10 +19,6 @@ const toFront = (list: Item[], id: string | null | undefined) => {
 const strategyLabel = (strategy: string) => strategy.replace(/_/g, " ");
 
 export default function StylistPage() {
-  return <Suspense fallback={<main className="flow-page"><Loader label="Setting up the studio…" /></main>}><StylistStudio /></Suspense>;
-}
-
-function StylistStudio() {
   const avatar = useStoredAvatar();
   const itemsQ = useItems();
   const [lists, setLists] = useState<Lists | null>(null);
@@ -33,8 +28,6 @@ function StylistStudio() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<"none" | "failed" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<RenderView | null>(null);
 
   // Lists keep the server's order (newest first); only "generate outfit" moves items to position 0.
   useEffect(() => {
@@ -43,58 +36,8 @@ function StylistStudio() {
     setLists({ tops: g.filter((x) => x.category === "tops"), bottoms: g.filter((x) => x.category === "bottoms"), jackets: g.filter((x) => x.category === "jackets") });
   }, [itemsQ.items]);
 
-  const top = lists?.tops[idx.tops];
-  const bottom = lists?.bottoms[idx.bottoms];
-  const jacket = noJacket ? undefined : lists?.jackets[idx.jackets];
-  const avatarId = avatar?.avatar_id;
-  const renderCtlRef = useRef<AbortController | null>(null);
-
-  // Render on explicit action only (DECISIONS A-R1): "See it on me" for the current selection,
-  // or right after "generate outfit" positions the lists. Never on swipe or selection change.
-  // Two-stage: show local_url at once, poll for generated_url, swap silently. Failures never surface.
-  const requestRender = useCallback((topId: string, bottomId: string, jacketId: string | null) => {
-    if (!avatarId) return;
-    renderCtlRef.current?.abort();
-    const ctl = new AbortController();
-    renderCtlRef.current = ctl;
-    setLoading(true);
-    (async () => {
-      try {
-        const job = await createRender({ avatar_id: avatarId, top_id: topId, bottom_id: bottomId, jacket_id: jacketId });
-        if (ctl.signal.aborted) return;
-        setLoading(false);
-        setView({ local: job.local_url, generated: job.generated_url ?? undefined, pending: job.status === "pending" });
-        if (job.status !== "pending") return;
-        const done = await pollRender(job.render_id, ctl.signal);
-        if (ctl.signal.aborted) return;
-        setView({ local: job.local_url, generated: done?.generated_url ?? undefined, pending: false });
-      } catch {
-        if (!ctl.signal.aborted) { setLoading(false); setView((v) => (v ? { ...v, pending: false } : null)); }
-      }
-    })();
-  }, [avatarId]);
-
-  // Cancel any in-flight render/poll on unmount.
-  useEffect(() => () => { renderCtlRef.current?.abort(); }, []);
-
-  // "try it on" from the closet: move ?item= to the front of its list (like generate does) and render once.
-  const tryOnId = useSearchParams().get("item");
-  const tryOnDoneRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!tryOnId || tryOnDoneRef.current === tryOnId || !lists || !avatarId) return;
-    const item = [...lists.tops, ...lists.bottoms, ...lists.jackets].find((g) => g.id === tryOnId);
-    if (!item) return;
-    tryOnDoneRef.current = tryOnId;
-    const c = item.category;
-    const next = { ...lists, [c]: toFront(lists[c], item.id) };
-    const nextIdx = { ...idx, [c]: 0 };
-    setLists(next); setIdx(nextIdx); setExplanation(null); setWhy(null);
-    setNoJacket(c !== "jackets");
-    const t = next.tops[nextIdx.tops], b = next.bottoms[nextIdx.bottoms];
-    if (t && b) requestRender(t.id, b.id, c === "jackets" ? item.id : null);
-  }, [tryOnId, lists, avatarId, idx, requestRender]);
-
-  const seeItOnMe = () => { if (top && bottom) requestRender(top.id, bottom.id, jacket?.id ?? null); };
+  // Render only right after "generate outfit" positions the lists; never on swipe or selection change.
+  const { view, loading, requestRender, clearRender } = useRender(avatar?.avatar_id);
 
   if (avatar === undefined || itemsQ.isPending) return <main className="flow-page"><Loader label="Setting up the studio…" /></main>;
   if (avatar === null) return (
@@ -106,10 +49,7 @@ function StylistStudio() {
 
   const tooSmall = lists.tops.length === 0 || lists.bottoms.length === 0;
 
-  // Swiping never calls /api/render — it just clears a stale render (and cancels any in-flight poll
-  // for the selection being left) so the avatar falls back to the plain avatar image.
-  const clearRender = () => { renderCtlRef.current?.abort(); setLoading(false); setView(null); };
-
+  // Swiping never calls /api/render — it just clears a stale render (clearRender cancels any in-flight poll).
   const swipe = (c: Category, d: number) => {
     const n = lists[c].length;
     if (!n) return;
@@ -171,7 +111,6 @@ function StylistStudio() {
         ) : (
           <button type="button" className="stylist-action" onClick={generate} disabled={busy}>{busy ? "styling…" : "generate outfit"}</button>
         )}
-        <button type="button" className="stylist-action" onClick={seeItOnMe} disabled={!top || !bottom || loading}>see it on me</button>
         <button type="button" className={`stylist-action${noJacket ? " is-on" : ""}`} aria-pressed={noJacket} onClick={() => { setNoJacket((v) => !v); clearRender(); }}>{noJacket ? "with jacket" : "no jacket"}</button>
         {notice === "none" && <p className="stylist-note">No good combinations from this closet yet. Add a few more pieces.</p>}
         {notice === "failed" && <p className="stylist-note">The stylist couldn&apos;t compose a look just now. Try again in a moment.</p>}

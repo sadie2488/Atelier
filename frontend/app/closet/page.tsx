@@ -6,10 +6,25 @@ import { Button } from "@/components/Button";
 import { Plus, X } from "@/components/icons";
 import { Carousel, type Study } from "@/components/closet/Carousel";
 import { Loader, StatePanel } from "@/components/StatePanel";
-import { CATEGORIES, type ExtractedColor, type Item } from "@/lib/api";
+import { CATEGORIES, type Category, type ExtractedColor, type Item } from "@/lib/api";
 import { useIsMobile, useItems, useStoredAvatar } from "@/lib/hooks";
+import { useRender } from "@/lib/useRender";
 
 type ClosetStudy = Study & { items: Item[]; type: string };
+type Slot = "top" | "bottom" | "jacket";
+type Tray = Partial<Record<Slot, string>>;
+
+// Dresses are tops, so category alone decides the slot.
+const SLOT_OF: Record<Category, Slot> = { tops: "top", bottoms: "bottom", jackets: "jacket" };
+const SLOTS: Slot[] = ["top", "bottom", "jacket"];
+const TRAY_KEY = "atelier:outfit-tray";
+
+function readTray(): Tray {
+  try { const v = sessionStorage.getItem(TRAY_KEY); return v ? (JSON.parse(v) as Tray) : {}; } catch { return {}; }
+}
+function writeTray(t: Tray) {
+  try { sessionStorage.setItem(TRAY_KEY, JSON.stringify(t)); } catch { /* storage unavailable */ }
+}
 
 function SwatchChip({ color, label }: { color: ExtractedColor; label: string }) {
   return (
@@ -26,9 +41,16 @@ export default function ClosetPage() {
   const avatar = useStoredAvatar();
   const [cats, setCats] = useState([0, 1]);
   const [detail, setDetail] = useState<Item | null>(null);
+  const [tray, setTray] = useState<Tray>({});
+  const [renderOpen, setRenderOpen] = useState(false);
+  const { view, loading, requestRender, clearRender } = useRender(avatar?.avatar_id);
+
+  useEffect(() => { setTray(readTray()); }, []);
+  const updateTray = (next: Tray) => { setTray(next); writeTray(next); };
+  const closeRender = () => { setRenderOpen(false); clearRender(); };
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setDetail(null); };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { setDetail(null); setRenderOpen(false); } };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
@@ -40,6 +62,21 @@ export default function ClosetPage() {
     return { name: c.toUpperCase(), title: "", images: inCategory.map((g) => g.cutout_url), index: `0${i + 1}`, type: c, items: inCategory };
   });
 
+  // Drop ids that are no longer in the closet.
+  const byId = new Map(items.map((g) => [g.id, g] as const));
+  const trayItem = (slot: Slot) => { const id = tray[slot]; return id ? byId.get(id) : undefined; };
+  const trayTop = trayItem("top"), trayBottom = trayItem("bottom"), trayJacket = trayItem("jacket");
+  const trayFilled = SLOTS.some((s) => trayItem(s));
+  const canRender = !!trayTop && !!trayBottom;
+
+  // Rendering happens only on this explicit press (never on add/remove).
+  const seeItOnMe = () => {
+    if (!trayTop || !trayBottom || !avatar) return;
+    setDetail(null);
+    setRenderOpen(true);
+    requestRender(trayTop.id, trayBottom.id, trayJacket?.id ?? null);
+  };
+
   const setCategory = (slot: number, index: number) => {
     if (!isMobile && cats[(slot + 1) % 2] === index) return;
     setCats((current) => current.map((value, i) => (i === slot ? index : value)));
@@ -47,7 +84,7 @@ export default function ClosetPage() {
   };
 
   return (
-    <main className="archive-shell">
+    <main className={`archive-shell${trayFilled ? " has-tray" : ""}`}>
       <aside className="scan-panel" aria-hidden="true">
         <div className="avatar-boundary">
           <span className="avatar-boundary-box">{avatar && <img src={avatar.avatar_url} alt="" />}</span>
@@ -107,8 +144,53 @@ export default function ClosetPage() {
                 <SwatchChip color={detail.primary_color} label="extracted" />
                 {detail.secondary_color && <SwatchChip color={detail.secondary_color} label="secondary" />}
               </div>
-              <Link href={`/stylist?item=${encodeURIComponent(detail.id)}`} className="solid-btn">try it on</Link>
+              {tray[SLOT_OF[detail.category]] === detail.id ? (
+                <div className="tray-added">
+                  <span className="solid-btn" aria-disabled="true">added to outfit</span>
+                  <button type="button" className="ghost-btn" onClick={() => { const next = { ...tray }; delete next[SLOT_OF[detail.category]]; updateTray(next); }}>remove</button>
+                </div>
+              ) : (
+                <button type="button" className="solid-btn" onClick={() => updateTray({ ...tray, [SLOT_OF[detail.category]]: detail.id })}>add to outfit</button>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+      {trayFilled && (
+        <div className="outfit-tray" role="region" aria-label="Outfit">
+          {SLOTS.map((slot) => {
+            const it = trayItem(slot);
+            return (
+              <div className="tray-slot" key={slot}>
+                {it ? <img src={it.cutout_url} alt={it.retailer_item_name ?? slot} /> : <span className="tray-empty">{slot}{slot === "jacket" ? " (optional)" : ""}</span>}
+                {it && <button type="button" className="tray-clear" aria-label={`Clear ${slot}`} onClick={() => { const next = { ...tray }; delete next[slot]; updateTray(next); }}><X size={12} strokeWidth={2} /></button>}
+              </div>
+            );
+          })}
+          <div className="tray-action">
+            {avatar === null ? (
+              <Link href="/scan" className="solid-btn">scan yourself first</Link>
+            ) : (
+              <button type="button" className="solid-btn" onClick={seeItOnMe} disabled={!canRender || !avatar}>see it on me</button>
+            )}
+            {!canRender && <small className="tray-hint">{!trayTop && !trayBottom ? "add a top and a bottom" : !trayTop ? "add a top" : "add a bottom"}</small>}
+          </div>
+        </div>
+      )}
+
+      {renderOpen && avatar && (
+        <div className="preview-backdrop" role="presentation" onClick={closeRender}>
+          <div className="render-panel" role="dialog" aria-modal="true" aria-label="Your outfit" onClick={(event) => event.stopPropagation()}>
+            <Button variant="close" aria-label="Close" className="detail-close" onClick={closeRender}><X size={20} strokeWidth={1.5} /></Button>
+            {(() => {
+              const shown = view?.generated ?? view?.local ?? (loading ? avatar.wireframe_url : avatar.avatar_url);
+              return (
+                <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}`}>
+                  <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
+                </div>
+              );
+            })()}
+            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : " "}</p>
           </div>
         </div>
       )}

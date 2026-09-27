@@ -362,3 +362,25 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
   .insights-page { width: 100%; gap: 22px; }
   .insights-bar-row { grid-template-columns: 70px 1fr 34px; }
 }
+
+/* closet outfit tray + render view */
+.outfit-tray { position: fixed; z-index: 40; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 10px; max-width: calc(100vw - 32px); box-sizing: border-box; background: color-mix(in oklab, var(--background) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.tray-slot { position: relative; width: 56px; height: 68px; flex: none; display: grid; place-items: center; border: 1px dashed var(--border); border-radius: 2px; }
+.tray-slot img { width: 100%; height: 100%; object-fit: contain; padding: 4px; box-sizing: border-box; }
+.tray-empty { font: 600 10px var(--font-sans); letter-spacing: .04em; color: var(--muted-foreground); text-align: center; }
+.tray-clear { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--background); color: var(--foreground); cursor: pointer; }
+.tray-action { display: grid; gap: 4px; justify-items: center; margin-left: 4px; }
+.tray-action .solid-btn { min-height: 40px; padding: 0 14px; white-space: nowrap; }
+.tray-hint { font: 500 11px var(--font-sans); color: var(--muted-foreground); }
+.tray-added { display: flex; gap: 10px; flex-wrap: wrap; }
+.tray-added .solid-btn { cursor: default; }
+.has-tray .archive-content { padding-bottom: 110px; }
+.render-panel { position: relative; display: grid; justify-items: center; gap: 10px; padding: 26px; background: var(--background); border-radius: 2px; max-width: 92vw; max-height: 92svh; overflow: auto; }
+.render-panel .stylist-avatar-box { height: min(76svh, 820px); }
+.render-status { margin: 0; min-height: 1.2em; font: 600 12px var(--font-sans); letter-spacing: .06em; color: var(--muted-foreground); }
+@media (max-width: 767px) {
+  .has-tray .add-fab { bottom: 110px; }
+  .outfit-tray { gap: 8px; }
+  .tray-slot { width: 46px; height: 58px; }
+  .render-panel .stylist-avatar-box { height: min(66svh, 520px); }
+}
