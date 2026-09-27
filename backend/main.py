@@ -2,6 +2,10 @@
 
 Run from the repo root:  uvicorn backend.main:app --reload
 """
+import logging
+import os
+import threading
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,7 +63,9 @@ def media(path: str):
         raise StarletteHTTPException(status_code=404, detail=f"No media at /media/{path}.")
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, target)  # atomic: a concurrent request never serves a half-written file
     except OSError:
         pass  # cache only; the bytes are served either way
     return Response(content=data, media_type=media_store.content_type(path))
@@ -70,6 +76,15 @@ def media(path: str):
 async def http_error(request: Request, exc: StarletteHTTPException):
     code = "not_found" if exc.status_code == 404 else "invalid_request"
     return JSONResponse(status_code=exc.status_code, content={"error": {"code": code, "message": str(exc.detail)}})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    logging.getLogger("atelier").exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"error": {"code": "internal_error", "message": "Something went wrong on our side. Please try again."}},
+    )
 
 
 @app.exception_handler(RequestValidationError)
