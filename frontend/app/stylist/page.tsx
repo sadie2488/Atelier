@@ -143,6 +143,7 @@ export default function StylistPage() {
       </div>
 
       <div className="stylist-actions">
+        <Link href="/insights" className="stylist-action">palette insights</Link>
         {tooSmall ? (
           <div className="stylist-note"><p>Your closet needs at least a top and a bottom to build an outfit.</p><Link href="/add-item" className="stylist-action">add item</Link></div>
         ) : (

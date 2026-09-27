@@ -330,3 +330,26 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 @media (max-width: 700px) {
   .stylist-avatar-box, .stylist-page .stylist-avatar-box, .avatar-reveal { width: auto; height: min(56svh, 480px); }
 }
+
+/* insights page */
+.insights-page { width: min(680px, 92vw); display: grid; gap: 28px; text-align: left; }
+.insights-section { display: grid; gap: 10px; }
+.insights-swatches { display: flex; flex-wrap: wrap; gap: 14px 22px; }
+.insights-bars { display: grid; gap: 8px; }
+.insights-bar-row { display: grid; grid-template-columns: 90px 1fr 40px; align-items: center; gap: 10px; font: 600 12px var(--font-sans); letter-spacing: .04em; color: var(--foreground); }
+.insights-bar-label { text-transform: capitalize; color: var(--muted-foreground); }
+.insights-bar-track { height: 8px; background: color-mix(in oklab, var(--foreground) 10%, transparent); border-radius: 999px; overflow: hidden; }
+.insights-bar-fill { display: block; height: 100%; border-radius: 999px; }
+.insights-bar-pct { text-align: right; color: var(--muted-foreground); }
+.insights-neutral { font: italic 400 clamp(40px, 7vw, 64px)/1 var(--font-display); color: var(--foreground); margin: 0; }
+.insights-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font: 500 14px/1.5 var(--font-sans); color: var(--foreground); }
+.insights-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.insights-chip { padding: 3px 10px; font: 600 11px var(--font-sans); letter-spacing: .04em; color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 999px; }
+.insights-versatile-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.insights-versatile-item { display: grid; justify-items: center; gap: 6px; width: 92px; }
+.insights-versatile-item img { width: 92px; height: 110px; object-fit: contain; }
+.insights-versatile-item small { font: 600 10px var(--font-sans); color: var(--muted-foreground); text-align: center; }
+@media (max-width: 700px) {
+  .insights-page { width: 100%; gap: 22px; }
+  .insights-bar-row { grid-template-columns: 70px 1fr 34px; }
+}

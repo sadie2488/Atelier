@@ -3,10 +3,10 @@
 import type {
   AnalyzeResponse, Avatar, AvatarScanResponse, Category, ErrorCode, ErrorResponse, ExtractedColor,
   GarmentType, HealthResponse, Item, ItemListResponse, Outfit, OutfitsGenerateResponse,
-  RenderJob, RenderRequest,
+  PaletteInsights, RenderJob, RenderRequest,
 } from "./api-types";
 
-export type { Avatar, Category, ExtractedColor, GarmentType, Item, Outfit, RenderJob };
+export type { Avatar, Category, ExtractedColor, GarmentType, Item, Outfit, PaletteInsights, RenderJob };
 export type Candidate = AnalyzeResponse["candidates"][number];
 
 export const CATEGORIES: Category[] = ["tops", "bottoms", "jackets"];
@@ -54,6 +54,8 @@ export async function fetchAvatar(id: string): Promise<StoredAvatar> {
 export async function listItems(): Promise<Item[]> {
   return (await http<ItemListResponse>("/items")).items;
 }
+
+export const getPaletteInsights = () => http<PaletteInsights>("/insights/palette");
 
 export async function analyzeItem(input: { image: Blob; category: Category; garment_type: GarmentType; color?: string; item_name?: string }): Promise<AnalyzeResponse> {
   if (!GARMENT_TYPES[input.category].includes(input.garment_type)) throw new ApiError("invalid_request", "That garment type doesn't match the category.");
