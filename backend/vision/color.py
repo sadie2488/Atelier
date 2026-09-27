@@ -21,7 +21,7 @@ from sklearn.cluster import KMeans
 from contract.enums import (
     COLOR_KMEANS_K, ErrorCode, NEUTRAL_CHROMA_MAX, SECONDARY_MIN_DELTA_E, SECONDARY_MIN_MASS,
 )
-from contract.tools.color import delta_e2000, lab_to_lch, nearest_color
+from contract.tools.color import delta_e2000, display_name, lab_to_lch, nearest_color
 
 from . import VisionError
 from .candidate_params import COLOR_SAMPLE_EROSION_PX
@@ -54,6 +54,9 @@ def _make_color(lab_raw) -> dict:
         "family": family,
         "is_neutral": lch[1] < NEUTRAL_CHROMA_MAX,
         "everyday_neutral": everyday_neutral,
+        # Contract 2.1.0: human-friendly display_name, nearest xkcd color-survey name by
+        # CIEDE2000 -- UI-facing only. `name`/`family` (colors.json, used by styling) unchanged.
+        "display_name": display_name(lab),
     }
 
 

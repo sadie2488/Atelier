@@ -34,13 +34,24 @@ def build_cutout(
     pad_x = max(1, round(bw * CROP_PAD_FRACTION))
     pad_y = max(1, round(bh * CROP_PAD_FRACTION))
 
-    cx0, cy0 = max(0, x0 - pad_x), max(0, y0 - pad_y)
-    cx1, cy1 = min(w, x1 + pad_x), min(h, y1 + pad_y)
+    # ARTIFACT_SPEC: all four corners alpha 0. When the garment's own bbox already touches the
+    # SOURCE photo's edge (a tight retailer crop -- common on the shorts/skirt fixtures), naively
+    # clamping the padded crop box into [0, w) x [0, h) silently eats the padding on that side,
+    # so the "corner" pixel is really the garment's own edge pixel (alpha 255) -- an opaque
+    # "background". Fix: never clamp the crop box itself; pad with REAL transparent pixels
+    # (a zero-initialized canvas) and copy only the in-bounds portion of the image/mask into it.
+    cx0, cy0 = x0 - pad_x, y0 - pad_y
+    cx1, cy1 = x1 + pad_x, y1 + pad_y
     crop_w, crop_h = cx1 - cx0, cy1 - cy0
 
-    alpha = (mask.astype(np.uint8) * 255)[cy0:cy1, cx0:cx1]
-    rgb_crop = rgb[cy0:cy1, cx0:cx1]
-    rgba = np.dstack([rgb_crop, alpha])
+    sx0, sy0 = max(0, cx0), max(0, cy0)
+    sx1, sy1 = min(w, cx1), min(h, cy1)
+    dx0, dy0 = sx0 - cx0, sy0 - cy0
+    dx1, dy1 = dx0 + (sx1 - sx0), dy0 + (sy1 - sy0)
+
+    rgba = np.zeros((crop_h, crop_w, 4), dtype=np.uint8)
+    rgba[dy0:dy1, dx0:dx1, :3] = rgb[sy0:sy1, sx0:sx1]
+    rgba[dy0:dy1, dx0:dx1, 3] = (mask.astype(np.uint8) * 255)[sy0:sy1, sx0:sx1]
 
     # Scale-invariant: normalize against the pre-scale crop, then resize.
     anchors: dict[str, list[float]] = {}

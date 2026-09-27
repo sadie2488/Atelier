@@ -31,14 +31,26 @@ REGION_PAD_FRACTION = 0.12
 # where fixtures/images shows a skirt hem or shirt hem bleeding into the wrong cutout (see
 # backend/vision/segmentation.py's `_isolate_by_color` docstring for the other half of that fix).
 # Tuned by eye against fixtures/images on 2026-09-26; re-tune once golden references exist.
+#
+# V6.2 (bug (b), re-dispatch): pants/skirt/shorts' pad_x and pad_bottom were tuned far too tight
+# for a hip/knee/ankle LANDMARK span, which only traces the model's own legs -- a wide-leg, baggy
+# or flared garment's FABRIC extends well past that skeletal span (confirmed against
+# fixtures/images: two wide-leg jean fixtures had a landmark span under 90px wide against a
+# ~140-250px-wide visible garment, so the isolation region sliced through the middle of the pants
+# and cut off almost all of the flare). pad_x is now generous for all three -- both left/right
+# edges are the garment's OWN far edge here (there's no neighboring garment on either side), so
+# there's no shared-edge reason to keep it tight, unlike pad_top. pad_bottom is a bit more
+# generous too, but stays well short of pad_x since it still has to leave room to exclude shoes
+# (pants) or bare shin (shorts/skirt, whose pad_bottom is now relative to the shorter hip->knee
+# span used for isolation -- see `segmentation._ISOLATION_REGION_LANDMARKS` -- not hip->ankle).
 REGION_PAD: dict = {
     "shirt": (0.15, 0.04, 0.12),
     "jacket": (0.15, 0.04, 0.12),
     "coat": (0.15, 0.04, 0.12),
     "dress": (0.08, 0.06, 0.10),
-    "pants": (0.04, 0.10, 0.12),
-    "skirt": (0.04, 0.10, 0.12),
-    "shorts": (0.04, 0.10, 0.12),
+    "pants": (0.04, 0.15, 0.40),
+    "skirt": (0.04, 0.35, 0.40),
+    "shorts": (0.04, 0.35, 0.40),
 }
 
 # V6 isolation (re-dispatch fix): within the pose region, a "core probe" band -- (frac_start,

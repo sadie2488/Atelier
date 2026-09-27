@@ -92,9 +92,40 @@ _REGION_LANDMARKS: dict[GarmentType, list[str]] = {
                          "left_ankle", "right_ankle"],
 }
 
-# Public alias: ARTIFACT_SPEC's required-anchor table is the same landmark sets as the
-# segmentation region (V3 stores these normalized per cutout).
+# Public alias: ARTIFACT_SPEC's required-anchor table (frozen -- pants/shorts/skirt all require
+# left_ankle/right_ankle regardless of the garment's own hem) is the same landmark set as the V6
+# pose region used to be. `segment()` still reports every named landmark (ankle included) for
+# anchors no matter which landmarks the ISOLATION region below actually uses.
 ANCHOR_LANDMARKS = _REGION_LANDMARKS
+
+# V6.2 isolation (bottoms re-dispatch, bug (b)): the region used to CUT OUT shorts/skirt used the
+# same hip->ankle landmark span as pants, i.e. "hips to ankles" for a garment that only reaches
+# mid-thigh/knee. Two problems: (1) it pulls in a huge span of bare leg for the color-isolation
+# step to fight with, and (2) on the many shorts/skirt fixtures that are cropped above the knee
+# (a close-up product shot), BlazePose's ankle -- and often the knee too -- has near-zero
+# `visibility` and is extrapolated far outside the frame, which can invert the region box
+# entirely. Shorts/skirt isolation now bounds on hip->knee only (own far edge = knee, generous
+# margin below it per REGION_PAD); pants keeps hip->ankle (`ANCHOR_LANDMARKS` above still emits
+# ankle anchors for all three either way, per the frozen contract table).
+_ISOLATION_REGION_LANDMARKS: dict[GarmentType, list[str]] = dict(_REGION_LANDMARKS)
+_ISOLATION_REGION_LANDMARKS[GarmentType.skirt] = ["left_hip", "right_hip", "left_knee", "right_knee"]
+_ISOLATION_REGION_LANDMARKS[GarmentType.shorts] = ["left_hip", "right_hip", "left_knee", "right_knee"]
+
+# V6.2: a landmark-derived region box that spans less than this fraction of the whole
+# (preprocessed) image's height is a sign BlazePose's knee/ankle (or, on some shorts/skirt
+# fixtures, even the hip) are low-confidence extrapolations -- confirmed against fixtures/images:
+# several full-length pants photos came back with a box covering under half the frame while the
+# jeans visibly run nearly top-to-bottom, and several shorts photos (a tight hip-to-thigh crop,
+# ankle/knee barely or not at all in frame) came back with a sliver near one edge of the frame
+# instead of the visible shorts. Pants gets the higher bar (a pants photo's garment legitimately
+# runs most of the frame); shorts/skirt gets a lower one (their own valid hip->knee region is
+# naturally a smaller fraction, but fixtures/images never legitimately goes below this). Below
+# its threshold, the landmark span is discarded in favor of nearly the whole frame (`segment()`).
+_MIN_BOTTOM_BOX_HEIGHT_FRAC: dict[GarmentType, float] = {
+    GarmentType.pants: 0.4,
+    GarmentType.skirt: 0.2,
+    GarmentType.shorts: 0.2,
+}
 
 
 @dataclass
@@ -190,9 +221,17 @@ def _core_probe_mask(
     """V6 isolation: a small band, positioned per garment_type, over where the requested
     garment is expected to dominate even when another garment/layer is also in frame -- see
     `_isolate_by_color` and `candidate_params.CORE_PROBE_BAND`."""
-    if garment_type in (GarmentType.pants, GarmentType.skirt, GarmentType.shorts):
+    if garment_type == GarmentType.pants:
         top_names, bottom_names, x_names = (
             ["left_hip", "right_hip"], ["left_ankle", "right_ankle"],
+            ["left_hip", "right_hip", "left_knee", "right_knee"],
+        )
+    elif garment_type in (GarmentType.skirt, GarmentType.shorts):
+        # V6.2: probe span matches the hip->knee isolation region now (see
+        # `_ISOLATION_REGION_LANDMARKS`) -- a hip->ankle probe on a garment that ends at the knee
+        # would place most of the "core" band over bare leg, not the garment.
+        top_names, bottom_names, x_names = (
+            ["left_hip", "right_hip"], ["left_knee", "right_knee"],
             ["left_hip", "right_hip", "left_knee", "right_knee"],
         )
     elif garment_type == GarmentType.dress:
@@ -211,6 +250,26 @@ def _core_probe_mask(
     frac0, frac1 = CORE_PROBE_BAND[garment_type.value]
     xs = [points[n][0] for n in x_names]
     box = (min(xs), top_y + frac0 * span, max(xs), top_y + frac1 * span)
+    return _box_mask(box, w, h)
+
+
+# V6.2 isolation (bottoms re-dispatch, bug (b)): when the pose region falls back to (near) the
+# whole frame -- either the pre-existing degenerate-box case or the new too-short-for-pants case
+# below -- pose landmarks are exactly what isn't trustworthy here, so the core probe can't be
+# landmark-positioned either. This is a purely geometric stand-in: fixtures/images product photos
+# are shot with the garment filling most of the frame, so a band that skips a thin margin at each
+# end (a partial top garment bleeding in from above, shoes/floor below) still reliably lands
+# mostly on the bottoms garment, not on whatever is cropped in at the very top or bottom.
+_FALLBACK_CORE_PROBE_BAND: dict[str, tuple[float, float]] = {
+    "pants": (0.30, 0.90),
+    "skirt": (0.20, 0.75),
+    "shorts": (0.20, 0.75),
+}
+
+
+def _fallback_core_probe_mask(garment_type: GarmentType, w: int, h: int) -> np.ndarray:
+    frac0, frac1 = _FALLBACK_CORE_PROBE_BAND[garment_type.value]
+    box = (0.0, frac0 * h, float(w), frac1 * h)
     return _box_mask(box, w, h)
 
 
@@ -369,9 +428,10 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
     chosen = int(np.argmax(areas))
 
     points = all_points[chosen]
-    region_names = _REGION_LANDMARKS[garment_type]
+    region_names = _ISOLATION_REGION_LANDMARKS[garment_type]
     pad_top, pad_bottom, pad_x = REGION_PAD[garment_type.value]
     box = _region_box(points, region_names, w, h, pad_top=pad_top, pad_bottom=pad_bottom, pad_x=pad_x)
+    landmarks_trusted = True
     if box[2] <= box[0] or box[3] <= box[1]:
         # V6: a tight product-photo crop (e.g. waist-to-mid-thigh only) can leave BlazePose with
         # near-zero presence for the landmarks a pose region needs (hip/knee/ankle extrapolated
@@ -379,6 +439,15 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
         # min/max into a degenerate box. There is no usable pose constraint in that case, so fall
         # back to the whole frame; `clothes` category still excludes background/skin/hair.
         box = (0.0, 0.0, float(w), float(h))
+        landmarks_trusted = False
+    elif (garment_type in _MIN_BOTTOM_BOX_HEIGHT_FRAC
+          and (box[3] - box[1]) < _MIN_BOTTOM_BOX_HEIGHT_FRAC[garment_type] * h):
+        # V6.2 (bug (b)): not degenerate, but implausibly short -- same low-confidence
+        # hip/knee/ankle extrapolation, just not (by luck of the arithmetic) inverted into a
+        # negative span. Widen to (nearly) the whole frame rather than trust a span this
+        # implausible; `clothes` category still excludes background/skin/hair.
+        box = (0.0, 0.0, float(w), float(h) * 0.97)
+        landmarks_trusted = False
     region_mask = _box_mask(box, w, h)
 
     seg_result = image_segmenter().segment(mp_image)
@@ -390,12 +459,23 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
     non_background = category != CATEGORY_BACKGROUND
 
     base = _largest_component(clothes & region_mask)
-    if box[2] > box[0] and box[3] > box[1]:
-        # V6 isolation: only probe/split when the region box is a real pose-derived box, not
-        # the degenerate-fallback whole frame (a core probe over the whole image isn't a useful
-        # signal -- see the box-degeneracy comment above).
+    is_bottom = garment_type in (GarmentType.pants, GarmentType.skirt, GarmentType.shorts)
+    if landmarks_trusted:
         core_probe = _core_probe_mask(garment_type, points, w, h)
         base = _isolate_by_color(rgb, base, core_probe)
+    elif is_bottom:
+        # V6.2 (bug (b)): unlike tops/jacket/dress below, still isolate/split by color even
+        # though the pose region fell back to (near) the whole frame -- previously skipped
+        # entirely here ("no useful probe signal"), which is exactly the case that most needed
+        # it: a whole-frame `base` is the likeliest to have swept in a genuinely different
+        # garment (e.g. a cropped top above a pair of shorts) alongside the target bottoms. The
+        # probe itself just can't be landmark-positioned in this case -- see
+        # `_fallback_core_probe_mask`'s geometric stand-in, tuned for bottoms specifically.
+        core_probe = _fallback_core_probe_mask(garment_type, w, h)
+        base = _isolate_by_color(rgb, base, core_probe)
+    # else (shirt/jacket/coat/dress, landmarks not trusted): unchanged from V6 -- a core probe
+    # over the whole image isn't a useful signal for those garment types' probe shapes, so skip
+    # isolation and keep `base` as the largest clothes-in-frame component.
 
     variants: dict[str, np.ndarray] = {}
     for name, radius in CANDIDATE_MORPH_RADIUS_PX.items():
