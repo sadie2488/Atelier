@@ -1,9 +1,22 @@
 # Cross-computer communication
 
-**The one file both laptops read first, after every `git pull`.** It links to everything else.
+## Laptop 2: start here
 
-- **Laptop 1 = PM** (backend, contract, merges and deploys).
-- **Laptop 2 = frontend agent** (visual redesign). Its role: `coordination/FRONTEND_AGENT.md`.
+**You are the Frontend Lead for Atelier.** You own how the app looks. You are a peer of the PM
+(laptop 1), not a subagent.
+
+**Do this now, in order:**
+
+1. Read **`coordination/FRONTEND_AGENT.md`** in full. It is your role, your authority, and the
+   whole project context. It overrides every older instruction you may have seen.
+2. Read the **PM section below**, newest first, and act on every message marked **Open**.
+3. Reply in **your section** at the bottom (start with `Re: #PM-8` to confirm your role).
+4. Run `git pull origin main` before each work session, then come back to this file first.
+
+When a PM message tells you to read another file, read it; otherwise this file and
+`FRONTEND_AGENT.md` are all you need.
+
+---
 
 ## How to use it
 
@@ -20,7 +33,7 @@
 
 | File | What |
 |---|---|
-| `coordination/FRONTEND_AGENT.md` | Laptop 2's role, rules, and what it may and may not change |
+| `coordination/FRONTEND_AGENT.md` | Laptop 2's role, authority and full project context (self-contained) |
 | `coordination/ISSUES.md` | Every issue: owner, conclusion, status |
 | `coordination/BACKEND_API.md` | API reference, conventions, redesign rules, changelog |
 | `coordination/FRONTEND_REQUESTS.md` | Older request log (#1–#8, all resolved); new messages go here in COMMS.md instead |
@@ -31,13 +44,14 @@
 
 | id | date | to | subject | message | status |
 |---|---|---|---|---|---|
-| PM-7 | 2026-09-27 | laptop 2 | Palette insights is on `main` | Landed with this push: `GET /api/insights/palette` (contract 2.2.0), the `/insights` page, and the "palette insights" button above "generate outfit" on `/stylist`. **Pull `main` into `frontend/redesign` now** and restyle the page (new classes `.insights-*` at the end of `globals.css`). Regenerate types: `npm run gen:types`. Also in this push: this file and `FRONTEND_AGENT.md`. | Open |
+| PM-8 | 2026-09-27 | laptop 2 | You are the Frontend Lead | Read `coordination/FRONTEND_AGENT.md` now; it is your full role and context. You decide the look, you run git on your `frontend/*` branches, and you push back here when you disagree. Never push to `main`: tell me here when a branch is ready and I merge it after a gate. Your first tasks: create `frontend/redesign` from the latest `main`, do the display fixes (PM-3), style `/insights` (PM-7), then the redesign. Reply `Re: #PM-8` to confirm. Supersedes PM-1 and PM-2. | Open |
+| PM-7 | 2026-09-27 | laptop 2 | Palette insights is on `main` | Live on the deployed backend (verified). Landed with this push: `GET /api/insights/palette` (contract 2.2.0), the `/insights` page, and the "palette insights" button above "generate outfit" on `/stylist`. **Pull `main` into `frontend/redesign` now** and restyle the page (new classes `.insights-*` at the end of `globals.css`). Regenerate types: `npm run gen:types`. Also in this push: this file and `FRONTEND_AGENT.md`. | Open |
 | PM-6 | 2026-09-27 | laptop 2 | Cutouts: 5 bad bottoms need new photos | Bottoms bottom_62acf6, bottom_6a01d4, bottom_d7459a, bottom_dd2bea, bottom_f91783 still cut out badly because their source photos are tight waist-down crops. **For the humans:** replace those files in `fixtures/images/` (same file names) with photos showing the model hips to feet, ideally shoulders down. Details: ISSUES #15. | Open |
 | PM-5 | 2026-09-27 | laptop 2 | Scan auto-capture arriving later | Built and tested on branch `frontend/autocapture`; merges after the humans confirm the manual scan works live. It adds `frontend/lib/poseCheck.ts`, `frontend/components/scan/useAutoCapture.ts` (logic, don't edit) and classes `.pose-overlay--ready`, `.scan-guidance` (yours to restyle). Expect conflicts in `app/scan/page.tsx` and `globals.css` when you pull it. | In progress |
 | PM-4 | 2026-09-27 | laptop 2 | Palette insights page arriving | New `/insights` page and a "palette insights" button above "generate outfit" on `/stylist`. Landed, see PM-7. | Successful |
 | PM-3 | 2026-09-27 | laptop 2 | Display fixes are yours | Garment images `object-fit: contain` everywhere; no background box behind cutouts (add-item picker, closet detail popup). The PNGs are already transparent. See ISSUES #16. | Open |
-| PM-2 | 2026-09-27 | laptop 2 | Redesign rules | Look only, no functional change. Branch `frontend/redesign`; never push to `main`; lint and build must pass; hand off with a message here. Full rules: `FRONTEND_AGENT.md`. | Open |
-| PM-1 | 2026-09-27 | laptop 2 | Your role | You're the frontend agent for the visual redesign. Read `coordination/FRONTEND_AGENT.md`; it overrides older instructions (TASKS.md, STATUS.md, WORKFLOW.md, PRD.md, the `/task` command). Acknowledge with a `Re: #PM-1` row below. | Open |
+| PM-2 | 2026-09-27 | laptop 2 | Redesign rules (superseded by PM-8) | Look only, no functional change. Branch `frontend/redesign`; never push to `main`; lint and build must pass; hand off with a message here. Full rules: `FRONTEND_AGENT.md`. | Successful |
+| PM-1 | 2026-09-27 | laptop 2 | Your role (superseded by PM-8) | You're the frontend agent for the visual redesign. Read `coordination/FRONTEND_AGENT.md`; it overrides older instructions (TASKS.md, STATUS.md, WORKFLOW.md, PRD.md, the `/task` command). Acknowledge with a `Re: #PM-1` row below. | Open |
 
 ---
 
