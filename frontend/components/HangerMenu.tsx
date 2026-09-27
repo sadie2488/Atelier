@@ -13,6 +13,8 @@ const links = [
   { label: "Scan", to: "/scan" },
 ] as const;
 
+const pageNames: Record<string, string> = { "/closet": "Closet", "/stylist": "Stylist", "/scan": "Scan", "/insights": "Palette", "/add-item": "Add item" };
+
 export function HangerMenu() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -74,6 +76,7 @@ export function HangerMenu() {
           <path d="M23.9 20.2 4.4 32.6a2.4 2.4 0 0 0 1.3 4.4h36.6a2.4 2.4 0 0 0 1.3-4.4L24.1 20.2" />
         </svg>
       </Button>
+      {pageNames[pathname] && <span className="hanger-page">{pageNames[pathname]}</span>}
       {open && (
         <nav id="hanger-dropdown" className="hanger-dropdown" aria-label="Main menu">
           {links.map(({ label, to }) => (

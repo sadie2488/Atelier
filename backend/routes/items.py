@@ -72,10 +72,27 @@ def _fresh_slug(prefix: str, items) -> str:
     raise VisionError(ErrorCode.analyze_failed, "Could not allocate a unique item slug.")
 
 
+def _has_transparent_background(data: bytes) -> bool:
+    """True when the image has an alpha channel and at least 5% of it is fully transparent."""
+    try:
+        import io
+        import numpy as np
+        with Image.open(io.BytesIO(data)) as im:
+            if "A" not in im.getbands() and "transparency" not in im.info:
+                return False
+            alpha = np.asarray(im.convert("RGBA"))[..., 3]
+        return float((alpha < 16).mean()) >= 0.05
+    except Exception:
+        return False
+
+
 def _build_any(data: bytes, category, garment_type):
     """Person pipeline first (unchanged for photos with a person); flat-lay/product-photo
     fallback (alpha cutout, else background flood-fill + GrabCut) when no person is detected.
-    Same return shape either way."""
+    Same return shape either way. A photo that already has a transparent background is a garment
+    cutout, so it goes straight to the flat-lay path (the pose model can mistake a tee for a torso)."""
+    if _has_transparent_background(data):
+        return analyze_flatlay_bytes(data, category, garment_type)
     try:
         return build_candidates(data, category, garment_type)
     except VisionError as e:

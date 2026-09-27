@@ -29,9 +29,9 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
 body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
-/* Drifting sky: the pano is two mirrored copies side by side, so it tiles seamlessly; one tile = 1.3334 x viewport height. */
-body::before { content: ""; position: fixed; top: 0; left: 0; height: 100vh; width: calc(100vw + 133.3333vh); background: url("/cloud-sky-pano.jpg") 0 0 / auto 100% repeat-x; z-index: -1; animation: sky-drift 240s linear infinite; will-change: transform; pointer-events: none; }
-@keyframes sky-drift { from { transform: translateX(-133.3333vh); } to { transform: translateX(0); } }
+/* Drifting sky: the pano is one seamless tile (right edge blends into left), rendered 120vw wide and vertically centered; one loop = 120vw. */
+body::before { content: ""; position: fixed; top: 0; left: 0; height: 100vh; width: 240vw; background: url("/cloud-sky-pano.jpg") 0 50% / 120vw auto repeat-x; z-index: -1; animation: sky-drift 240s linear infinite; will-change: transform; pointer-events: none; }
+@keyframes sky-drift { from { transform: translateX(-120vw); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { body::before { animation: none; transform: none; } }
 button { font: inherit; }
 button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
@@ -126,7 +126,8 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 }
 
 /* Shared navigation, kept clear of the archive's picture studies. */
-.hanger-menu { position: fixed; z-index: 50; top: 20px; left: 24px; }
+.hanger-menu { position: fixed; z-index: 50; top: 20px; left: 24px; display: flex; align-items: center; }
+.hanger-page { margin-left: 6px; font: 600 13px var(--font-mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted-foreground); white-space: nowrap; pointer-events: none; user-select: none; }
 .hanger-trigger { width: 54px; height: 50px; padding: 5px; display: grid; place-items: center; color: var(--foreground); background: none; border: 0; cursor: pointer; }
 .hanger-trigger:hover, .hanger-trigger:focus-visible { background: none; }
 .hanger-trigger svg { width: 43px; height: 40px; transition: transform .28s cubic-bezier(.2,.8,.2,1); transform-origin: center; }
@@ -169,6 +170,8 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .stylist-action { padding: 13px 22px; border: 1px solid color-mix(in oklab, var(--border) 80%, transparent); background: color-mix(in oklab, var(--background) 40%, transparent); color: var(--muted-foreground); font: 600 13px var(--font-sans); letter-spacing: .07em; text-align: center; cursor: pointer; border-radius: 2px; backdrop-filter: blur(8px); transition: color .25s, border-color .25s, background .25s; }
 .stylist-action:hover { color: var(--foreground); border-color: var(--primary); background: color-mix(in oklab, var(--background) 55%, transparent); }
 .stylist-action.is-on { color: var(--foreground); border-color: var(--primary); background: color-mix(in oklab, var(--background) 60%, transparent); }
+.stylist-action.try-on-btn { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.stylist-action.try-on-btn:hover:not(:disabled) { background: color-mix(in oklab, var(--primary) 82%, var(--foreground)); border-color: color-mix(in oklab, var(--primary) 82%, var(--foreground)); color: var(--primary-foreground); }
 @media (max-width: 700px) {
   .stylist-avatar-box { width: clamp(200px, 62vw, 300px); }
   .stylist-actions { right: 50%; transform: translate(50%, -50%); top: auto; bottom: clamp(28px, 6vh, 56px); flex-direction: row; gap: 10px; }
@@ -591,7 +594,7 @@ select.attr-input { cursor: pointer; }
 @media (min-width: 701px) { .stylist-lists .jacket-block .swipe-item img { object-position: center top; padding-top: 2px; } }
 
 /* Soft floor shadow at the avatar's feet (behind the image, under the curtain). */
-.avatar-floor { position: absolute; left: 50%; bottom: 1.5%; transform: translateX(-50%); width: 62%; height: 7%; border-radius: 50%; background: radial-gradient(ellipse at center, color-mix(in oklab, var(--foreground) 28%, transparent) 0%, color-mix(in oklab, var(--foreground) 10%, transparent) 45%, transparent 72%); filter: blur(4px); pointer-events: none; }
+.avatar-floor { position: absolute; left: 50%; bottom: .3%; transform: translateX(-50%); width: 62%; height: 5%; border-radius: 50%; background: radial-gradient(ellipse at center, color-mix(in oklab, var(--foreground) 38%, transparent) 0%, color-mix(in oklab, var(--foreground) 14%, transparent) 45%, transparent 72%); filter: blur(4px); pointer-events: none; }
 .avatar-boundary-box { position: relative; }
 .avatar-boundary-box img, .avatar-reveal img { position: relative; }
 
