@@ -1,24 +1,82 @@
-"""A-P3: pose landmarks checked against the outline tolerance. Reject with a specific,
-actionable reason, never a generic failure. A-B8: landmarks missing -> reject, no lower rung.
+"""A-P3: pose landmarks checked against the outline tolerance. Evaluate every check and, on
+rejection, report every failing one -- specific, actionable, and ordered by importance -- never a
+single generic failure (previously this returned only the FIRST failing check, so a person got one
+vague reason and had to guess at the rest). A-B8: landmarks missing -> reject, no lower rung.
+
+Human decision 2026-09-27 (priority bug): "the scan usually rejects... more info on why would be
+helpful." Real scans come from a laptop/phone browser camera, several feet away, imperfect
+lighting -- every threshold below is reviewed against that and loosened to the minimum the
+pipeline genuinely needs (a usable rig: shoulders/hips/knees/ankles located with usable
+confidence, face visible, roughly front-facing, arms not pressed flat), with the reasoning kept
+next to each one. Measured values are logged on every scan (not just rejections) so a rejection
+can be debugged from server logs without reproducing it.
 """
+import logging
 import math
 from typing import Optional
 
 from contract.enums import ErrorCode
 
-VISIBILITY_MIN = 0.5
-# Human decision 2026-09-26: 25° rejected natural relaxed stances (real scans measured 15-23°);
-# 12° still rejects arms pressed flat against the torso.
+logger = logging.getLogger(__name__)
+
+# --- thresholds ---------------------------------------------------------------------------------
+
+# Was 0.5. MediaPipe visibility on a real webcam frame (laptop distance, mixed room lighting)
+# regularly lands 0.3-0.6 on joints that are perfectly usable for the rig -- 0.5 rejected
+# reasonable scans outright (human report 2026-09-27; the real-photo probe below measured
+# 0.92-1.0 on well-lit photos, so 0.3 still leaves real margin before this fires).
+VISIBILITY_MIN = 0.3
+
+# Unchanged -- 2026-09-26 decision already tuned against real relaxed stances (15-23 degrees
+# measured, see model.sadie.jpeg/model.lalitha.jpeg at 14.6-23.8 degrees) vs. arms pressed flat.
+# Loosening further would stop catching the latter.
 ARM_ANGLE_MIN_DEG = 12.0
 
-_BODY_REQUIRED = [
-    "nose", "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle",
+# NEW checks below (previously there was no framing or facing check at all -- a too-close/too-far/
+# turned scan surfaced only as a confusing missing-landmark or arm-angle rejection, if it was
+# caught at all). Bounds are deliberately wide: reject only once the crop is genuinely unusable for
+# a rig, not for imperfect distance-from-camera guessing (human report: "the place to stand is
+# really small").
+
+# Fraction of the frame height the body spans, head to ankles (see _frame_fraction). The two real
+# model photos measured 0.77-0.79 here with plenty of headroom either side.
+MAX_BODY_FRAME_FRACTION = 0.97  # near edge-to-edge -- the next small movement clips head or feet
+MIN_BODY_FRAME_FRACTION = 0.20  # smaller than this and landmark pixel precision (hence the rig)
+                                 # gets genuinely coarse
+
+# Facing-the-camera proxy: MediaPipe Pose's z (depth) is not captured by landmarks.py (it only
+# keeps x, y, visibility), so rotation is inferred from how far the nose sits off the shoulder
+# midpoint, relative to shoulder width. A front-facing person's nose sits close to centered (the
+# two real photos measured 0.02-0.03); a person turned toward profile shifts it well past half the
+# shoulder width. Generous on purpose: flags a clear turn, not a tilted head or a slightly angled
+# stance.
+MAX_FACING_OFFSET_RATIO = 0.6
+
+# --- missing-landmark groups, ordered most-fundamental-first -------------------------------------
+# Grouped (rather than one message per landmark) so a person gets one instruction per body region,
+# not a wall of near-duplicate lines.
+
+_MISSING_CHECKS: list[tuple[str, tuple[str, ...], str]] = [
+    ("ankles", ("left_ankle", "right_ankle"),
+     "Your ankles aren't visible — step back until your feet are in the frame."),
+    ("knees", ("left_knee", "right_knee"),
+     "Your knees aren't visible — step back until your legs are in the frame."),
+    ("hips", ("left_hip", "right_hip"),
+     "Your hips aren't visible — step back so your waist is in the frame."),
+    ("shoulders", ("left_shoulder", "right_shoulder"),
+     "Your shoulders aren't visible — step back so your upper body is in the frame."),
+    ("arms", ("left_elbow", "right_elbow", "left_wrist", "right_wrist"),
+     "Your arms aren't visible — step back until your whole arms are in the frame."),
+    ("face", ("nose",),
+     "Your face isn't visible — make sure your head is in frame and well lit."),
 ]
 
-STEP_BACK_MESSAGE = "Step back so your whole body, shoulders to ankles, is visible in the frame."
-ARMS_MESSAGE = "Move your arms slightly away from your body."
+_BODY_REQUIRED = [name for _label, names, _msg in _MISSING_CHECKS for name in names]
+
+# Kept for backend/avatar/scripts/make_polish_preview.py, which bypasses only an arm-angle
+# rejection for two known photos -- it matches on this prefix rather than an exact message, since
+# the message itself now carries the measured angle.
+ARMS_MESSAGE_PREFIX = "Your arms are too close to your body"
 
 
 def _angle_deg(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
@@ -32,17 +90,90 @@ def _angle_deg(a: tuple[float, float], b: tuple[float, float], c: tuple[float, f
     return math.degrees(math.acos(cos_t))
 
 
-def validate(landmarks: dict[str, tuple[float, float, float]]) -> Optional[tuple[ErrorCode, str]]:
-    """-> None if the pose is acceptable, else (ErrorCode.pose_rejected, actionable message)."""
-    missing = [n for n in _BODY_REQUIRED if landmarks[n][2] < VISIBILITY_MIN]
-    if missing:
-        return ErrorCode.pose_rejected, STEP_BACK_MESSAGE
+def _arm_message(angle_deg: float) -> str:
+    return (
+        f"{ARMS_MESSAGE_PREFIX} ({angle_deg:.0f}°, need {ARM_ANGLE_MIN_DEG:.0f}°) "
+        "— lift them slightly away."
+    )
 
-    for side in ("left", "right"):
-        shoulder = landmarks[f"{side}_shoulder"][:2]
-        hip = landmarks[f"{side}_hip"][:2]
-        elbow = landmarks[f"{side}_elbow"][:2]
-        if _angle_deg(hip, shoulder, elbow) < ARM_ANGLE_MIN_DEG:
-            return ErrorCode.pose_rejected, ARMS_MESSAGE
 
+def validate(
+    landmarks: dict[str, tuple[float, float, float]],
+    frame_size: tuple[int, int],
+) -> Optional[tuple[ErrorCode, str]]:
+    """-> None if the pose is acceptable, else (ErrorCode.pose_rejected, message).
+
+    Every check is evaluated (not just the first failure); `message` joins every failing one with
+    "\\n", most important first, so the frontend can render each line as its own bullet.
+    frame_size: (width, height) in pixels of the photo the landmarks were detected on -- needed
+    for the framing checks.
+    """
+    frame_w, frame_h = frame_size
+    reasons: list[str] = []
+    missing_groups: set[str] = set()
+    measurements: dict[str, object] = {}
+
+    for label, names, message in _MISSING_CHECKS:
+        worst_visibility = min(landmarks[n][2] for n in names)
+        measurements[f"{label}_visibility"] = round(worst_visibility, 3)
+        if worst_visibility < VISIBILITY_MIN:
+            reasons.append(message)
+            missing_groups.add(label)
+
+    # Framing (too close / too far): only meaningful once the face and ankles are actually
+    # located, otherwise the span below is measuring noise, not the body.
+    if not ({"face", "ankles"} & missing_groups):
+        nose_y = landmarks["nose"][1]
+        ankle_y = max(landmarks["left_ankle"][1], landmarks["right_ankle"][1])
+        # No head-top landmark exists; approximate the gap from the nose to the top of the head as
+        # a fraction of the nose-to-ankle span -- rough human proportions, good enough for a
+        # framing threshold, not a precise body-height measurement.
+        body_top = nose_y - (ankle_y - nose_y) * 0.12
+        body_height = max(1.0, ankle_y - body_top)
+        frame_fraction = body_height / frame_h
+        measurements["body_frame_fraction"] = round(frame_fraction, 3)
+        if frame_fraction > MAX_BODY_FRAME_FRACTION:
+            reasons.append(
+                "You're too close to the camera — your body fills "
+                f"{frame_fraction * 100:.0f}% of the frame height."
+            )
+        elif frame_fraction < MIN_BODY_FRAME_FRACTION:
+            reasons.append(
+                "You're too far from the camera — your body only fills "
+                f"{frame_fraction * 100:.0f}% of the frame height."
+            )
+
+    # Facing the camera: only meaningful once the face and shoulders are actually located.
+    if not ({"face", "shoulders"} & missing_groups):
+        left_x, right_x = landmarks["left_shoulder"][0], landmarks["right_shoulder"][0]
+        shoulder_mid_x = (left_x + right_x) / 2.0
+        shoulder_width = abs(left_x - right_x)
+        if shoulder_width > 1e-6:
+            offset_ratio = abs(landmarks["nose"][0] - shoulder_mid_x) / shoulder_width
+            measurements["facing_offset_ratio"] = round(offset_ratio, 3)
+            if offset_ratio > MAX_FACING_OFFSET_RATIO:
+                reasons.append("Turn to face the camera — your shoulders look rotated.")
+
+    # Arms away from the body: only meaningful once shoulders, hips, and arms are all located.
+    if not ({"shoulders", "hips", "arms"} & missing_groups):
+        worst_side, worst_angle = None, None
+        for side in ("left", "right"):
+            shoulder = landmarks[f"{side}_shoulder"][:2]
+            hip = landmarks[f"{side}_hip"][:2]
+            elbow = landmarks[f"{side}_elbow"][:2]
+            angle = _angle_deg(hip, shoulder, elbow)
+            measurements[f"{side}_arm_angle_deg"] = round(angle, 1)
+            if worst_angle is None or angle < worst_angle:
+                worst_angle, worst_side = angle, side
+        if worst_angle is not None and worst_angle < ARM_ANGLE_MIN_DEG:
+            reasons.append(_arm_message(worst_angle))
+
+    logger.info(
+        "avatar scan pose check: frame=%dx%d measurements=%s %s",
+        frame_w, frame_h, measurements,
+        "accepted" if not reasons else f"rejected ({len(reasons)} check(s) failed): {reasons}",
+    )
+
+    if reasons:
+        return ErrorCode.pose_rejected, "\n".join(reasons)
     return None

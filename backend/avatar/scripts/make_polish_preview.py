@@ -19,7 +19,7 @@ from PIL import Image, ImageOps
 from backend.avatar import compositing, face as face_mod, media, skin
 from backend.avatar.draw import draw_avatar
 from backend.avatar.landmarks import detect_landmarks
-from backend.avatar.pose_validation import ARMS_MESSAGE, validate as validate_pose
+from backend.avatar.pose_validation import ARMS_MESSAGE_PREFIX, validate as validate_pose
 from backend.avatar.rig import canvas_bbox, compute_rig, translate
 from backend.avatar.service import MAX_LONG_SIDE, _downscale
 from contract.enums import GarmentType
@@ -71,15 +71,19 @@ def build_one(name: str, photo_path: Path) -> None:
         print(f"{name}: no person detected, skipping")
         return
 
-    # Bypass ONLY the arm-angle rejection -- these two photos are known to fail it (15-20 degrees
-    # vs the 25 degree rule) while new photos with arms out are retaken. ARM_ANGLE_MIN_DEG stays
-    # untouched in pose_validation.py; any other rejection reason (e.g. a landmark out of frame)
-    # still aborts this preview, same as a real scan.
-    rejection = validate_pose(landmarks)
-    if rejection is not None and rejection[1] != ARMS_MESSAGE:
-        print(f"{name}: pose rejected ({rejection[1]}), skipping")
-        return
+    # Bypass ONLY an arm-angle rejection -- older captures of these two photos failed it (15-20
+    # degrees vs the then-25-degree rule) while new photos with arms out are retaken.
+    # ARM_ANGLE_MIN_DEG stays untouched in pose_validation.py; any other rejection reason (e.g. a
+    # landmark out of frame) still aborts this preview, same as a real scan. The rejection message
+    # may now list several failing checks (one per line) -- bypass only if every line is the
+    # arm-angle check.
+    rejection = validate_pose(landmarks, (rgb.shape[1], rgb.shape[0]))
     if rejection is not None:
+        lines = rejection[1].split("\n")
+        other_lines = [line for line in lines if not line.startswith(ARMS_MESSAGE_PREFIX)]
+        if other_lines:
+            print(f"{name}: pose rejected ({'; '.join(other_lines)}), skipping")
+            return
         print(f"{name}: bypassing arm-angle rejection for this debug preview (real photos pending retake)")
 
     rig = compute_rig(landmarks)

@@ -122,7 +122,7 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
             "No person found in the photo. Step back so your whole body is in the outline.",
         )
 
-    rejection = validate_pose(landmarks)
+    rejection = validate_pose(landmarks, (rgb.shape[1], rgb.shape[0]))
     if rejection is not None:
         code, message = rejection
         raise AvatarError(code, message)

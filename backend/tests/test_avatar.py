@@ -15,14 +15,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageOps
 
 from backend import config
 from backend.avatar import background, compositing, face, gen_client, ids, person, service, skin, verify
 from backend.avatar.gen_client import generate_tryon as _real_generate_tryon  # bound before the
 # autouse fixture below monkeypatches gen_client.generate_tryon, so this name still reaches the
 # real function -- needed to test the real function's own behavior (the timeout it sends).
-from backend.avatar.pose_validation import ARMS_MESSAGE, STEP_BACK_MESSAGE, validate
+from backend.avatar.pose_validation import ARMS_MESSAGE_PREFIX, validate
 from backend.avatar.rig import compute_rig, translate, canvas_bbox
 from backend.avatar.draw import draw_avatar, draw_wireframe
 from contract.enums import GarmentType
@@ -70,7 +70,16 @@ def _good_landmarks():
     }
 
 
-def _synthetic_png_bytes(color=(200, 150, 120), size=(64, 128)) -> bytes:
+# _good_landmarks() spans roughly x:[0,400] y:[80,700] on its own virtual canvas. Pose validation
+# now also checks framing (body height as a fraction of the actual photo height), so the synthetic
+# photo's own size must be consistent with that span -- this is that consistent frame size, and
+# also the default for _synthetic_png_bytes() below. (420, 900) keeps the resulting frame_fraction
+# around 0.77, comfortably inside [MIN_BODY_FRAME_FRACTION, MAX_BODY_FRAME_FRACTION] and close to
+# the two real model photos (0.77-0.79, see test_real_model_photos_are_accepted).
+_GOOD_FRAME_SIZE = (420, 900)
+
+
+def _synthetic_png_bytes(color=(200, 150, 120), size=_GOOD_FRAME_SIZE) -> bytes:
     img = Image.new("RGB", size, color)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -86,33 +95,34 @@ PERSON_PHOTO_SIZE = (420, 720)
 # ---------------------------------------------------------------- A1: pose validation
 
 def test_pose_accepts_good_standing_pose():
-    assert validate(_good_landmarks()) is None
+    assert validate(_good_landmarks(), _GOOD_FRAME_SIZE) is None
 
 
 def test_pose_rejects_missing_landmarks_with_actionable_reason():
     lm = _good_landmarks()
     lm["left_ankle"] = (230.0, 700.0, 0.1)  # out of frame / not visible
-    result = validate(lm)
-    assert result == (result[0], STEP_BACK_MESSAGE)
+    result = validate(lm, _GOOD_FRAME_SIZE)
     assert result[0].value == "pose_rejected"
+    assert result[1] == "Your ankles aren't visible — step back until your feet are in the frame."
 
 
 def test_pose_rejects_arms_close_to_body_with_actionable_reason():
     lm = _good_landmarks()
     lm["left_elbow"] = (245.0, 200.0, 0.99)  # nearly in line with the torso, not away from it
-    result = validate(lm)
-    assert result == (result[0], ARMS_MESSAGE)
+    result = validate(lm, _GOOD_FRAME_SIZE)
     assert result[0].value == "pose_rejected"
+    assert result[1].startswith(ARMS_MESSAGE_PREFIX)
 
 
 def test_pose_rejects_arm_angle_just_below_new_threshold():
-    # ARM_ANGLE_MIN_DEG is 12.0 (human decision 2026-09-26). left_elbow placed so the
-    # hip-shoulder-elbow angle is exactly 10 degrees -- just under the threshold.
+    # ARM_ANGLE_MIN_DEG is 12.0 (human decision 2026-09-26, unchanged by the 2026-09-27 pass).
+    # left_elbow placed so the hip-shoulder-elbow angle is exactly 10 degrees -- just under it.
     lm = _good_landmarks()
     lm["left_elbow"] = (259.45614434184796, 249.55190271504677, 0.99)
-    result = validate(lm)
-    assert result == (result[0], ARMS_MESSAGE)
+    result = validate(lm, _GOOD_FRAME_SIZE)
     assert result[0].value == "pose_rejected"
+    assert result[1].startswith(ARMS_MESSAGE_PREFIX)
+    assert "10°" in result[1] and "12°" in result[1]
 
 
 def test_pose_accepts_arm_angle_just_above_new_threshold():
@@ -120,7 +130,50 @@ def test_pose_accepts_arm_angle_just_above_new_threshold():
     # which real relaxed-stance scans (15-23 degrees) must clear.
     lm = _good_landmarks()
     lm["left_elbow"] = (266.37749933741526, 248.6497719989913, 0.99)
-    assert validate(lm) is None
+    assert validate(lm, _GOOD_FRAME_SIZE) is None
+
+
+def test_pose_rejects_reports_every_failing_check_ordered_by_importance():
+    """A1 priority bug fix: previously only the FIRST failing check was reported. Now every check
+    is evaluated and every failure is reported, most important first (missing landmarks -- the
+    scan is fundamentally unusable -- before the fine-grained arm-angle check)."""
+    lm = _good_landmarks()
+    lm["left_ankle"] = (230.0, 700.0, 0.1)  # missing: most important
+    lm["left_elbow"] = (245.0, 200.0, 0.99)  # arms too close: least important of these two
+    result = validate(lm, _GOOD_FRAME_SIZE)
+    assert result[0].value == "pose_rejected"
+    lines = result[1].split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "Your ankles aren't visible — step back until your feet are in the frame."
+    assert lines[1].startswith(ARMS_MESSAGE_PREFIX)
+
+
+def test_pose_rejects_too_close_to_camera():
+    """NEW check (human report 2026-09-27: no way to tell 'too close' apart from a garbled
+    rejection). A frame short enough that the body fills > MAX_BODY_FRAME_FRACTION of its height."""
+    result = validate(_good_landmarks(), (420, 700))
+    assert result is not None
+    assert result[0].value == "pose_rejected"
+    assert "too close to the camera" in result[1]
+    assert "% of the frame height" in result[1]
+
+
+def test_pose_rejects_too_far_from_camera():
+    """NEW check: a frame tall enough that the body fills < MIN_BODY_FRAME_FRACTION of its height."""
+    result = validate(_good_landmarks(), (420, 4000))
+    assert result is not None
+    assert result[0].value == "pose_rejected"
+    assert "too far from the camera" in result[1]
+
+
+def test_pose_rejects_turned_away_from_camera():
+    """NEW check: the nose shifted well off the shoulder midpoint (a profile turn), relative to
+    shoulder width -- see MAX_FACING_OFFSET_RATIO for why this proxy is used instead of z-depth."""
+    lm = _good_landmarks()
+    lm["nose"] = (270.0, 80.0, 0.99)  # shoulder_mid_x=200, shoulder_width=100 -> offset ratio 0.7
+    result = validate(lm, _GOOD_FRAME_SIZE)
+    assert result == (result[0], "Turn to face the camera — your shoulders look rotated.")
+    assert result[0].value == "pose_rejected"
 
 
 @pytest.mark.parametrize("image_name", [
@@ -130,15 +183,38 @@ def test_pose_accepts_arm_angle_just_above_new_threshold():
 ])
 def test_real_photo_with_cropped_legs_is_pose_rejected(image_name):
     """Real MediaPipe run (no mocking): a photo cropped above the ankles must be rejected, not
-    silently accepted with bad placement anchors."""
+    silently accepted with bad placement anchors. MediaPipe extrapolates an ankle position even
+    past the bottom edge of a cropped frame (visibility can still land above VISIBILITY_MIN), so
+    this ends up caught by the framing check instead of the missing-landmark one -- either is a
+    correct, actionable rejection for this photo."""
     rgb = np.asarray(Image.open(FIXTURES / image_name).convert("RGB"))
     from backend.avatar.landmarks import detect_landmarks
     landmarks = detect_landmarks(rgb)
     assert landmarks is not None
-    result = validate(landmarks)
+    result = validate(landmarks, (rgb.shape[1], rgb.shape[0]))
     assert result is not None
     assert result[0].value == "pose_rejected"
-    assert result[1] == STEP_BACK_MESSAGE
+    assert "ankles aren't visible" in result[1] or "too close to the camera" in result[1]
+
+
+MODELS_DIR = Path(__file__).resolve().parents[1] / "avatar" / "models"
+
+
+@pytest.mark.parametrize("image_name", ["model.sadie.jpeg", "model.lalitha.jpeg"])
+def test_real_model_photos_are_accepted(image_name):
+    """The two real scans used to calibrate every threshold in pose_validation.py must pass --
+    both measured at 14.6-23.8 degree arm angles, 0.77-0.79 frame fraction, ~0.02-0.03 facing
+    offset. Skips if the (large, checked-in) fixture is absent."""
+    path = MODELS_DIR / image_name
+    if not path.is_file():
+        pytest.skip(f"{image_name} not present")
+    img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+    rgb = np.asarray(img)
+    from backend.avatar.landmarks import detect_landmarks
+    landmarks = detect_landmarks(rgb)
+    assert landmarks is not None
+    result = validate(landmarks, (rgb.shape[1], rgb.shape[0]))
+    assert result is None, f"{image_name} rejected: {result[1] if result else None}"
 
 
 def test_real_blank_image_has_no_person_detected():
@@ -421,7 +497,7 @@ def test_scan_endpoint_pose_rejected_response_shape(client, memory_db, monkeypat
     assert resp.status_code == 422
     body = resp.json()
     assert body["error"]["code"] == "pose_rejected"
-    assert body["error"]["message"] == ARMS_MESSAGE
+    assert body["error"]["message"].startswith(ARMS_MESSAGE_PREFIX)
 
 
 def test_scan_endpoint_unsupported_image(client, memory_db):
