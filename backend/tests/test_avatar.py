@@ -1037,7 +1037,7 @@ def test_generate_tryon_sends_image_timeout_not_local_wait_timeout(monkeypatch):
 
 def test_prompt_v2_dress_also_describes_the_bottom():
     from backend.avatar.prompt import PROMPT_VERSION, build_prompt
-    assert PROMPT_VERSION == "v4"
+    assert PROMPT_VERSION == "v5"
     assert "must not be edited or modified" in build_prompt(has_jacket=False, is_dress=False)
     assert "fit naturally" in build_prompt(has_jacket=False, is_dress=False)
     text = build_prompt(has_jacket=False, is_dress=True)

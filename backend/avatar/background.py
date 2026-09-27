@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import numpy as np
+from PIL import Image
 
 from contract.enums import GarmentType, RenderStatus
 
@@ -47,7 +48,11 @@ def _run(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collect
     try:
         is_dress = GarmentType(top_doc["garment_type"]) == GarmentType.dress
 
-        person_img = media.load_media(avatar_doc["source_photo_url"]).convert("RGB")
+        # The background-removed avatar cutout on plain white, not the raw photo (human request:
+        # the try-on keeps the background removed).
+        cutout = media.load_media(avatar_doc["avatar_url"]).convert("RGBA")
+        person_img = Image.new("RGB", cutout.size, (255, 255, 255))
+        person_img.paste(cutout, mask=cutout.getchannel("A"))
         top_img = media.load_media(top_doc["cutout_url"])
         # A dress still has a bottom slot (A-R5: "no exclusion logic") and it is sent too --
         # A-R7 chose an instruction-following model precisely so it can layer them correctly.
