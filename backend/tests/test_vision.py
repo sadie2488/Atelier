@@ -151,6 +151,46 @@ def test_save_persists_item_with_correct_slug_and_cutout(client, fake_db):
     _cleanup_media(slug=item.id)
 
 
+def test_save_persists_cutout_to_durable_media_store(client, fake_db, memory_media):
+    files, form = _multipart(BOTTOM_FIXTURE, "bottoms", "pants")
+    analyze_resp = client.post("/api/items/analyze", files=files, data=form)
+    handle = analyze_resp.json()["temp_handle"]
+
+    save_resp = client.post("/api/items/save", json={"temp_handle": handle, "candidate_index": 0})
+    assert save_resp.status_code == 200, save_resp.text
+    item_id = save_resp.json()["id"]
+
+    assert memory_media[f"items/{item_id}.png"] == (config.MEDIA_DIR / "items" / f"{item_id}.png").read_bytes()
+
+    _cleanup_media(slug=item_id)
+
+
+def test_save_returns_internal_error_and_inserts_nothing_when_persist_fails(
+    client, fake_db, monkeypatch,
+):
+    from backend import media_store
+
+    def _boom(path):
+        raise RuntimeError("gridfs unavailable")
+
+    monkeypatch.setattr(media_store, "persist", _boom)
+
+    files, form = _multipart(BOTTOM_FIXTURE, "bottoms", "pants")
+    analyze_resp = client.post("/api/items/analyze", files=files, data=form)
+    handle = analyze_resp.json()["temp_handle"]
+
+    save_resp = client.post("/api/items/save", json={"temp_handle": handle, "candidate_index": 0})
+    assert save_resp.status_code == 500, save_resp.text
+    err = ErrorResponse.model_validate(save_resp.json())
+    assert err.error.code.value == "internal_error"
+    assert fake_db["items"].find() == []
+
+    # cutout file was moved to media/items/ even though persist failed; clean it up by slug
+    # pattern isn't known (insert never happened), so sweep the dir for this test's leftover.
+    for p in (config.MEDIA_DIR / "items").glob("bottom_*.png"):
+        p.unlink(missing_ok=True)
+
+
 def test_save_unknown_handle_is_handle_expired(client, fake_db):
     resp = client.post("/api/items/save", json={"temp_handle": "tmp_deadbeef0000", "candidate_index": 0})
     assert resp.status_code == 410

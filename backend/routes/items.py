@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from PIL import Image
 from pydantic import ValidationError
 
-from backend import config
+from backend import config, media_store
 from backend.db import get_db
 from contract.enums import Category, ErrorCode, GarmentType, SLUG_PREFIX
 from contract.schemas import (
@@ -167,7 +167,13 @@ def save(body: SaveRequest, db=Depends(get_db)):
     src = TMP_MEDIA_DIR / cand["filename"]
     dest_dir = config.MEDIA_DIR / "items"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    src.replace(dest_dir / f"{slug}.png")
+    dest_path = dest_dir / f"{slug}.png"
+    src.replace(dest_path)
+
+    try:
+        media_store.persist(dest_path)
+    except Exception as e:  # never insert an item document without its durable image
+        return _error(ErrorCode.internal_error, f"Could not persist item image: {e}")
 
     doc = {
         "id": slug,
