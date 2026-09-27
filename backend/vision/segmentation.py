@@ -583,6 +583,13 @@ def segment(rgb: np.ndarray, garment_type: GarmentType) -> SegmentationResult:
         while not m.any() and r < 0:
             r += 1
             m = _morph(base, r)
+        if is_bottom:
+            # V3 edge quality (re-dispatch, human request): straighten/de-fray the waistband and
+            # hem(s) of this candidate's final mask -- see edge_regularize.py. Import kept local
+            # to avoid a module-level circular import (edge_regularize imports this module's
+            # `_fill_small_holes`).
+            from .edge_regularize import regularize_bottom_edges
+            m = regularize_bottom_edges(m, garment_type, clothes)
         variants[name] = m
 
     # V-S2: independent extent for the completeness check -- pose region intersected with the
