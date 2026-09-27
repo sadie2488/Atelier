@@ -52,6 +52,18 @@ MIN_BODY_FRAME_FRACTION = 0.20  # smaller than this and landmark pixel precision
 # stance.
 MAX_FACING_OFFSET_RATIO = 0.6
 
+# 2026-09-27 scan-stress pass (backend/avatar/scripts/scan_stress.py; live judge scan at the demo).
+# Feet slightly cut off by the bottom of the frame: MediaPipe still predicts the ankles past the
+# edge, and accurately (model.sadie cropped 10% of body height above the ankle: predicted ankle y
+# 1375/1381 vs. 1367/1378 true), but with low visibility (0.23-0.27), so the missing-ankles check
+# rejected it. Now, when the knees are visible and the predicted ankles sit at/below the bottom
+# edge (lower than FEET_EDGE_FRACTION of the frame height) and no more than FEET_CROP_MAX_FRACTION
+# of the nose-to-ankle span past it, the ankles count as "cropped, estimated" -- the rig uses
+# MediaPipe's prediction -- instead of missing. Ankles hidden INSIDE the frame still reject.
+FEET_EDGE_FRACTION = 0.97
+FEET_CROP_MAX_FRACTION = 0.18  # model.sadie cropped 15% of the span above the ankle predicts
+                               # ~15.3% past the edge; mid-shin (25%) still rejects
+
 # --- missing-landmark groups, ordered most-fundamental-first -------------------------------------
 # Grouped (rather than one message per landmark) so a person gets one instruction per body region,
 # not a wall of near-duplicate lines.
@@ -60,15 +72,15 @@ _MISSING_CHECKS: list[tuple[str, tuple[str, ...], str]] = [
     ("ankles", ("left_ankle", "right_ankle"),
      "Your ankles aren't visible — step back until your feet are in the frame."),
     ("knees", ("left_knee", "right_knee"),
-     "Your knees aren't visible — step back until your legs are in the frame."),
+     "Your knees aren't visible — step back so your legs are in the frame."),
     ("hips", ("left_hip", "right_hip"),
      "Your hips aren't visible — step back so your waist is in the frame."),
     ("shoulders", ("left_shoulder", "right_shoulder"),
-     "Your shoulders aren't visible — step back so your upper body is in the frame."),
+     "Your shoulders aren't visible — face the camera with your upper body in the frame."),
     ("arms", ("left_elbow", "right_elbow", "left_wrist", "right_wrist"),
-     "Your arms aren't visible — step back until your whole arms are in the frame."),
+     "Your arms aren't visible — let them hang at your sides, a little away from your body."),
     ("face", ("nose",),
-     "Your face isn't visible — make sure your head is in frame and well lit."),
+     "Your face isn't visible — face the camera and move into better light."),
 ]
 
 _BODY_REQUIRED = [name for _label, names, _msg in _MISSING_CHECKS for name in names]
@@ -97,6 +109,33 @@ def _arm_message(angle_deg: float) -> str:
     )
 
 
+def feet_cropped_by_frame(
+    landmarks: dict[str, tuple[float, float, float]], frame_size: tuple[int, int],
+) -> bool:
+    """True when the feet are only slightly cut off by the bottom edge: knees visible, and the
+    predicted ankles at/past the bottom edge but within FEET_CROP_MAX_FRACTION of the body span."""
+    _frame_w, frame_h = frame_size
+    if min(landmarks["left_knee"][2], landmarks["right_knee"][2]) < VISIBILITY_MIN:
+        return False
+    ankle_y = max(landmarks["left_ankle"][1], landmarks["right_ankle"][1])
+    span = ankle_y - landmarks["nose"][1]
+    if span <= 0:
+        return False
+    return FEET_EDGE_FRACTION * frame_h <= ankle_y <= frame_h + FEET_CROP_MAX_FRACTION * span
+
+
+def _feet_cropped_too_much(
+    landmarks: dict[str, tuple[float, float, float]], frame_size: tuple[int, int],
+) -> bool:
+    """True when the predicted ankles lie further past the bottom edge than FEET_CROP_MAX_FRACTION
+    allows -- rejected as missing ankles even at a visibility MediaPipe still rates usable (the
+    framing check clamps ankles to the frame, so it no longer catches this on its own)."""
+    _frame_w, frame_h = frame_size
+    ankle_y = max(landmarks["left_ankle"][1], landmarks["right_ankle"][1])
+    span = ankle_y - landmarks["nose"][1]
+    return span > 0 and ankle_y > frame_h + FEET_CROP_MAX_FRACTION * span
+
+
 def validate(
     landmarks: dict[str, tuple[float, float, float]],
     frame_size: tuple[int, int],
@@ -113,18 +152,33 @@ def validate(
     missing_groups: set[str] = set()
     measurements: dict[str, object] = {}
 
+    feet_cropped = feet_cropped_by_frame(landmarks, frame_size)
+    measurements["feet_cropped"] = feet_cropped
     for label, names, message in _MISSING_CHECKS:
         worst_visibility = min(landmarks[n][2] for n in names)
         measurements[f"{label}_visibility"] = round(worst_visibility, 3)
-        if worst_visibility < VISIBILITY_MIN:
+        missing = worst_visibility < VISIBILITY_MIN and not (label == "ankles" and feet_cropped)
+        if label == "ankles" and _feet_cropped_too_much(landmarks, frame_size):
+            missing = True
+        if missing:
             reasons.append(message)
             missing_groups.add(label)
+
+    # Scan-stress pass: "upper body only" produced separate ankles + knees + hips lines that all
+    # say "step back". When the ankles are missing, the ankles line already says it -- drop the
+    # redundant knees/hips lines (the groups stay marked missing for the checks below).
+    if "ankles" in missing_groups:
+        redundant = {msg for label, _n, msg in _MISSING_CHECKS if label in {"knees", "hips"}}
+        reasons = [r for r in reasons if r not in redundant]
 
     # Framing (too close / too far): only meaningful once the face and ankles are actually
     # located, otherwise the span below is measuring noise, not the body.
     if not ({"face", "ankles"} & missing_groups):
         nose_y = landmarks["nose"][1]
-        ankle_y = max(landmarks["left_ankle"][1], landmarks["right_ankle"][1])
+        # Clamped to the frame: feet slightly cut off (see FEET_CROP_MAX_FRACTION) are allowed, so
+        # past the bottom edge this measures only the head room -- "too close" then means the
+        # head is about to leave the top of the frame.
+        ankle_y = min(max(landmarks["left_ankle"][1], landmarks["right_ankle"][1]), float(frame_h))
         # No head-top landmark exists; approximate the gap from the nose to the top of the head as
         # a fraction of the nose-to-ankle span -- rough human proportions, good enough for a
         # framing threshold, not a precise body-height measurement.

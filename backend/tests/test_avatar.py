@@ -1616,3 +1616,55 @@ def test_generated_render_cutout_failure_keeps_white_and_marks_done(client, memo
     assert settled["status"] == "done"
     saved = np.array(Image.open(media_dir / settled["generated_url"][len("/media/"):]).convert("RGBA"))
     assert (saved[0, 0] == (255, 255, 255, 255)).all()
+
+
+# ---------------------------------------------------------------- A9: scan stress (feet cropped)
+
+def test_pose_accepts_feet_slightly_cropped_by_frame_bottom():
+    """Scan-stress pass: ankles predicted just past the bottom edge (low visibility, knees
+    visible) are estimated, not rejected -- model.sadie cropped 10% above the ankle measured this."""
+    lm = {k: (x, y + 60.0, v) for k, (x, y, v) in _good_landmarks().items()}  # head room
+    lm["left_ankle"] = (230.0, 760.0, 0.2)
+    lm["right_ankle"] = (170.0, 760.0, 0.2)
+    assert validate(lm, (420, 720)) is None  # ankles 40px past a 720px frame (6% of the span)
+
+
+def test_pose_rejects_feet_cropped_too_far():
+    lm = _good_landmarks()
+    result = validate(lm, (420, 500))  # ankles 200px (32% of the span) past the frame bottom
+    assert result is not None and result[0].value == "pose_rejected"
+    assert "ankles aren't visible" in result[1]
+
+
+def test_pose_still_rejects_ankles_hidden_inside_the_frame():
+    lm = _good_landmarks()
+    lm["left_ankle"] = (230.0, 700.0, 0.1)
+    lm["right_ankle"] = (170.0, 700.0, 0.1)
+    result = validate(lm, _GOOD_FRAME_SIZE)
+    assert result is not None and "ankles aren't visible" in result[1]
+
+
+def test_rejection_messages_are_one_instruction_per_line():
+    from backend.avatar.pose_validation import _MISSING_CHECKS
+    for _label, _names, message in _MISSING_CHECKS:
+        assert "\n" not in message and "—" in message and len(message) < 100
+
+
+def test_real_photo_feet_cropped_builds_padded_avatar():
+    """Real MediaPipe run: model.sadie with the bottom edge 10% of the body above the ankle is
+    accepted, and the avatar canvas still contains the estimated ankles (transparent rows below
+    the photo) so ankle-anchored garments are not clipped."""
+    path = MODELS_DIR / "model.sadie.jpeg"
+    if not path.is_file():
+        pytest.skip("model.sadie.jpeg not present")
+    from backend.avatar.landmarks import detect_landmarks
+    img = service._downscale(ImageOps.exif_transpose(Image.open(path)).convert("RGB"))
+    lm0 = detect_landmarks(np.asarray(img))
+    ankle = max(lm0["left_ankle"][1], lm0["right_ankle"][1])
+    bottom = round(ankle - (ankle - lm0["nose"][1]) * 0.10)
+    rgb = np.asarray(img.crop((0, 0, img.width, bottom)))
+    lm = detect_landmarks(rgb)
+    assert validate(lm, (rgb.shape[1], rgb.shape[0])) is None
+    vis = service.build_avatar_visuals(rgb, lm)
+    rig_ankle = max(vis["rig_local"].landmarks["left_ankle"][1], vis["rig_local"].landmarks["right_ankle"][1])
+    assert rig_ankle < vis["canvas_h"]

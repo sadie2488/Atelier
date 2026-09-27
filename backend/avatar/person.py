@@ -254,13 +254,24 @@ def _mask_bbox(
 FEET_SHADOW_SAT_MAX = 40    # 0-255 (HSV S) -- a shadow reads as close to gray
 FEET_SHADOW_VAL_MAX = 90    # 0-255 (HSV V) -- and dark; real shoes usually have some highlight
 MIN_BRIDGE_WIDTH = 5        # px; a fuzzy/textured shoe's dark speckle is thinner than this
+# Scan-stress pass: a bridge's CENTER must sit in the middle part of the gap between the ankles
+# (a dark trouser hem is centered on its own ankle, the floor shadow on the gap between them).
+BRIDGE_CENTER_MARGIN = 0.25
 
 
-def _trim_feet_shadow(mask: np.ndarray, crop_rgb: np.ndarray, ankle_y: Optional[float]) -> np.ndarray:
+def _trim_feet_shadow(
+    mask: np.ndarray, crop_rgb: np.ndarray, ankle_y: Optional[float],
+    ankle_xs: Optional[tuple[float, float]] = None,
+) -> np.ndarray:
     """-> `mask` with any floor-shadow bridging the feet trimmed out. `ankle_y`: the average ankle
     landmark y, in `crop_rgb`'s own pixel coordinates (already offset by the crop's bbox origin)
     -- None (ankles undetected) leaves the mask untouched. Never touches anything above the ankle
-    line, so a real shoe or leg is never cut -- only an interior dark bridge below it."""
+    line, so a real shoe or leg is never cut -- only an interior dark bridge below it.
+
+    `ankle_xs` (local x of both ankles; scan-stress pass 2026-09-27): a bridge must be centered
+    between the two ankles (BRIDGE_CENTER_MARGIN). Without this, on a person ~40-60% of a landscape webcam frame, a dark
+    trouser hem just below the ankle landmark (flanked by lighter anti-aliased edge pixels) read as
+    a "bridge" and was cut out as a full-width stripe above the shoes."""
     if ankle_y is None:
         return mask
     h, w = mask.shape
@@ -289,14 +300,19 @@ def _trim_feet_shadow(mask: np.ndarray, crop_rgb: np.ndarray, ankle_y: Optional[
         splits = np.where(np.diff(dark_idx) > 1)[0] + 1
         for run in np.split(dark_idx, splits):
             g0, g1 = run[0], run[-1]
-            if g0 > row_min and g1 < row_max and (g1 - g0 + 1) >= MIN_BRIDGE_WIDTH:
+            between_feet = True
+            if ankle_xs is not None:
+                ax0, ax1 = min(ankle_xs), max(ankle_xs)
+                margin = (ax1 - ax0) * BRIDGE_CENTER_MARGIN
+                between_feet = ax0 + margin < (g0 + g1) / 2 < ax1 - margin
+            if g0 > row_min and g1 < row_max and (g1 - g0 + 1) >= MIN_BRIDGE_WIDTH and between_feet:
                 trimmed[row, g0:g1 + 1] = False
     return trimmed
 
 
 def build_person_cutout(
     rgb: np.ndarray, bbox: tuple[int, int, int, int], ankle_y: Optional[float] = None,
-    shoulder_y: Optional[float] = None,
+    shoulder_y: Optional[float] = None, ankle_xs: Optional[tuple[float, float]] = None,
 ) -> Optional[tuple[Image.Image, tuple[int, int, int, int]]]:
     """Segments only within `bbox` (see `pose_bbox`) -- not the whole frame. `ankle_y`: the
     average ankle landmark y in `rgb`'s own full-frame pixel coordinates, used only to trim a
@@ -323,7 +339,8 @@ def build_person_cutout(
         return None
 
     ankle_y_local = (ankle_y - by0) if ankle_y is not None else None
-    cleaned = _trim_feet_shadow(cleaned, crop, ankle_y_local)
+    ankle_xs_local = (ankle_xs[0] - bx0, ankle_xs[1] - bx0) if ankle_xs is not None else None
+    cleaned = _trim_feet_shadow(cleaned, crop, ankle_y_local, ankle_xs_local)
 
     tight = _mask_bbox(cleaned, BBOX_PAD_FRACTION, (crop.shape[1], crop.shape[0]))
     if tight is None:

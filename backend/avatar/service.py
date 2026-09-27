@@ -81,7 +81,8 @@ def build_avatar_visuals(rgb: np.ndarray, landmarks: dict) -> dict:
     ankle_y = (rig.landmarks["left_ankle"][1] + rig.landmarks["right_ankle"][1]) / 2.0
 
     shoulder_y = min(rig.landmarks["left_shoulder"][1], rig.landmarks["right_shoulder"][1])
-    cutout = person.build_person_cutout(rgb, bbox, ankle_y=ankle_y, shoulder_y=shoulder_y)
+    ankle_xs = (rig.landmarks["left_ankle"][0], rig.landmarks["right_ankle"][0])
+    cutout = person.build_person_cutout(rgb, bbox, ankle_y=ankle_y, shoulder_y=shoulder_y, ankle_xs=ankle_xs)
     if cutout is not None:
         crop_img, full_bbox = cutout
         avatar_kind = "real_body"
@@ -89,6 +90,19 @@ def build_avatar_visuals(rgb: np.ndarray, landmarks: dict) -> dict:
         crop_img = person.photo_crop_fallback(rgb, bbox)
         full_bbox = bbox
         avatar_kind = "photo_crop"
+
+    # Feet slightly cut off by the bottom of the frame (accepted by pose_validation's
+    # FEET_CROP_MAX_FRACTION): the rig's ankles are MediaPipe's estimate below the photo. Extend
+    # the crop downward with transparent rows so the canvas still contains the estimated feet and
+    # bottoms/dresses anchored to the ankles are not clipped by the canvas edge.
+    if max(rig.landmarks["left_ankle"][1], rig.landmarks["right_ankle"][1]) > frame_size[1]:
+        feet_bottom = max(rig.landmarks["left_ankle"][1], rig.landmarks["right_ankle"][1]) + (
+            rig.shoulder_width * person.FOOT_ALLOWANCE_FRACTION)
+        extra = int(round(feet_bottom - full_bbox[3]))
+        if extra > 0:
+            grown = Image.new("RGBA", (crop_img.width, crop_img.height + extra), (0, 0, 0, 0))
+            grown.alpha_composite(crop_img.convert("RGBA"), (0, 0))
+            crop_img = grown
 
     canvas_img, (ox, oy) = person.pad_to_ratio(crop_img)
     canvas_w, canvas_h = canvas_img.size
@@ -114,7 +128,7 @@ def scan(image_bytes: bytes, avatars_collection) -> dict:
     if landmarks is None:
         raise AvatarError(
             ErrorCode.no_person_detected,
-            "No person found in the photo. Step back so your whole body is in the outline.",
+            "No one found in the photo — step back so your whole body is in the frame, in good light.",
         )
 
     rejection = validate_pose(landmarks, (rgb.shape[1], rgb.shape[0]))
