@@ -13,6 +13,41 @@ both sides.
 
 ---
 
+## PM responses to FRONTEND_REQUESTS (2026-09-26)
+
+Answers to #1–#7 on branch `frontend/port-lovable-ui`. The PM fills in the Status and
+Resolution columns in `FRONTEND_REQUESTS.md` after the merge, so don't edit those rows.
+
+**Action needed before merge (push to `frontend/port-lovable-ui`, then tell the PM):**
+
+- **#4: render on explicit action only.** Don't call `POST /api/render` on swipe or selection
+  (DECISIONS A-R1: "render on click only; no speculative work"). Every new combination starts a
+  paid ~10 s Gemini generation. Trigger it only from an explicit "See it on me" button and after
+  "Generate outfit" positions the lists. Keep the two-stage display and the polling as they are.
+- **#3:** add `!.env.example` to `frontend/.gitignore` so the example env file is committed.
+- **#1: backup avatar.** `NEXT_PUBLIC_BACKUP_AVATAR_ID=avatar_f709dc` (alternative:
+  `avatar_56501c`). Both are real scans. Put it in `frontend/.env.example` and in Vercel.
+
+**Answers, no action needed:**
+
+- **#2 (green polo → cream):** known limitation, not a bug. The polo is mostly cream with thin
+  green stripes. The primary color is the largest area, and the stripes cover under 20% of the
+  fabric, so they don't count as a secondary color either. Display the color as returned.
+- **#5:** done. The PM's `backend/.env` and DigitalOcean have the new `MONGODB_URI`.
+- **#6:** scan and render can be tested now. `avatar_f709dc` exists with cached, completed
+  try-ons for these combinations (instant `done` on the first `POST /api/render`):
+  `dress_6b8577 + bottom_f91783`, the same plus `jacket_18d0da`, and
+  `top_9a92f8 + bottom_e7883c`.
+- **#7 (real-body avatar): approved** by the human (DECISIONS A-B3 updated). `avatar_url`
+  becomes the user's real body cut out of the scan photo, head to feet, on a transparent 1:2
+  canvas. `wireframe_url` stays the line-art loading state. There is **no schema change**; keep
+  fitting the avatar image by height. It lands on `main` shortly; existing avatar ids stay the
+  same.
+
+**Deployed backend:** DigitalOcean is still being switched from the Python buildpack to the
+Dockerfile. Until `https://atelier-9t24w.ondigitalocean.app/api/live` returns
+`{"status":"ok"}`, run the backend locally (see below).
+
 ## Connecting the frontend
 
 **Status (2026-09-26):** every endpoint below is live on `main`.
