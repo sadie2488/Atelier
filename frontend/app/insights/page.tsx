@@ -47,11 +47,15 @@ export default function InsightsPage() {
   const cutoutFor = (itemId: string) => itemsQ.items?.find((it) => it.id === itemId)?.cutout_url;
 
   return (
-    <main className="flow-page" aria-label="Palette insights">
-      <div className="insights-page">
-        <h2 className="state-title">Your palette</h2>
+    <main className="editorial-page" aria-label="Palette insights">
+      <div className="editorial-inner">
+        <header className="editorial-heading">
+          <span className="editorial-kicker">closet analysis</span>
+          <h1>Your palette</h1>
+          <span className="editorial-count">{data.item_count} item{data.item_count === 1 ? "" : "s"}</span>
+        </header>
 
-        <section className="insights-section">
+        <section className="insights-section insights-section--swatches">
           <p className="detail-kicker">swatches</p>
           <div className="insights-swatches">
             {data.swatches.map((sw) => (
@@ -63,34 +67,38 @@ export default function InsightsPage() {
           </div>
         </section>
 
-        <section className="insights-section">
-          <p className="detail-kicker">color families</p>
-          <div className="insights-bars">
-            {data.families.map((f) => (
-              <div className="insights-bar-row" key={f.family}>
-                <span className="insights-bar-label">{f.family.replace(/_/g, " ")}</span>
-                <span className="insights-bar-track">
-                  <span className="insights-bar-fill" style={{ width: `${Math.round(f.share * 100)}%`, background: f.hex }} />
-                </span>
-                <span className="insights-bar-pct">{Math.round(f.share * 100)}%</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="insights-section">
-          <p className="detail-kicker">neutral share</p>
-          <p className="insights-neutral">{Math.round(data.neutral_share * 100)}%</p>
-        </section>
-
-        {data.insights.length > 0 && (
+        <div className="insights-body">
           <section className="insights-section">
-            <p className="detail-kicker">insights</p>
-            <ul className="insights-list">
-              {data.insights.map((line, i) => <li key={i}>{line}</li>)}
-            </ul>
+            <p className="detail-kicker">color families</p>
+            <div className="insights-bars">
+              {data.families.map((f) => (
+                <div className="insights-bar-row" key={f.family}>
+                  <span className="insights-bar-label">{f.family.replace(/_/g, " ")}</span>
+                  <span className="insights-bar-track">
+                    <span className="insights-bar-fill" style={{ width: `${Math.round(f.share * 100)}%`, background: f.hex }} />
+                  </span>
+                  <span className="insights-bar-pct">{Math.round(f.share * 100)}%</span>
+                </div>
+              ))}
+            </div>
           </section>
-        )}
+
+          <section className="insights-section insights-section--stack">
+            <div>
+              <p className="detail-kicker">neutral share</p>
+              <p className="insights-neutral">{Math.round(data.neutral_share * 100)}%</p>
+            </div>
+
+            {data.insights.length > 0 && (
+              <div>
+                <p className="detail-kicker">insights</p>
+                <ul className="insights-list">
+                  {data.insights.map((line, i) => <li key={i}>{line}</li>)}
+                </ul>
+              </div>
+            )}
+          </section>
+        </div>
 
         {data.missing_families.length > 0 && (
           <section className="insights-section">
