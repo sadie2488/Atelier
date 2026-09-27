@@ -412,6 +412,10 @@ open; without a fill, background shows through at the neckline and between the l
 
 **A-B5 — Skin tone sampled from exposed regions**, falling back to the face region when the
 user is scanned in long sleeves and pants. The face is always available.
+*Method (2026-09-26):* skin pixels come from the MediaPipe ImageSegmenter's skin categories
+(the Windows crash is only in PoseLandmarker's own mask output); the tone is their median in
+Lab, ignoring near-black and clipped pixels. Scans are EXIF-corrected and downscaled to a
+1600 px long side first; the face is detected in a crop around the head landmarks.
 
 **A-B6 — The real face is composited at the head.** Cropped via MediaPipe face detection,
 background removed, scaled to the wireframe's neck anchor.
