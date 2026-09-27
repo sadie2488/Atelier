@@ -8,7 +8,8 @@ export type Study = { name: string; title: string; images: string[]; index: stri
 
 const mod = (n: number, m: number) => ((n % m) + m) % m;
 
-export function Carousel({ study, onOpen }: { study: Study; onOpen: (image: number) => void }) {
+// captionPrefix: when set, the caption under the centered garment reads `${captionPrefix}-${position}` (1-based).
+export function Carousel({ study, onOpen, captionPrefix }: { study: Study; onOpen: (image: number) => void; captionPrefix?: string }) {
   const count = study.images.length;
   const [pos, setPos] = useState(0);
   const posRef = useRef(0);
@@ -214,7 +215,7 @@ export function Carousel({ study, onOpen }: { study: Study; onOpen: (image: numb
             );
           })}
         </div>
-        <div className="image-caption" key={`caption-${centerIndex}`}>{label}</div>
+        <div className={`image-caption${captionPrefix ? " image-caption--id" : ""}`} key={`caption-${centerIndex}`}>{captionPrefix ? `${captionPrefix}-${centerIndex + 1}` : label}</div>
         <div className="edge-zone edge-zone--right">
           <Button variant="icon" className="carousel-arrow" aria-label="Next image" onClick={() => step(1)}><ChevronRight size={22} strokeWidth={1.25} /></Button>
         </div>

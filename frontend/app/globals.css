@@ -106,6 +106,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .strip-item.is-selected .image-frame { animation-duration: 1ms; } }
 .image-caption { position: absolute; z-index: 20; left: 30%; top: calc(50% + min(14.5vh, 150px) + 12px); transform: translateX(-50%); font: 600 13px var(--font-mono); letter-spacing: .09em; text-transform: uppercase; color: var(--muted-foreground); pointer-events: none; animation: track-fade .6s ease-out; }
+.image-caption--id { text-transform: none; }
 .edge-zone { position: absolute; z-index: 30; top: 0; bottom: 0; width: 11%; display: flex; align-items: center; pointer-events: none; }
 .edge-zone .carousel-arrow { pointer-events: auto; }
 .edge-zone--left { left: 0; justify-content: flex-start; }
