@@ -95,6 +95,13 @@ def _bg_model(lab: np.ndarray) -> tuple[np.ndarray, float]:
         _, lbl, c2 = cv2.kmeans(band.astype(np.float32), 2, None, crit, 2, cv2.KMEANS_PP_CENTERS)
         frac = np.bincount(lbl.ravel(), minlength=2) / len(lbl)
         centers = c2[frac >= 0.15]
+        d2 = np.min(np.stack([np.linalg.norm(band - c, axis=1) for c in centers]), axis=0)
+        if np.percentile(d2, 75) > 6.0:   # textured multi-tone background (wood floor, fabric, sunlight)
+            _, lbl, c8 = cv2.kmeans(band.astype(np.float32), 8, None, crit, 3, cv2.KMEANS_PP_CENTERS)
+            frac = np.bincount(lbl.ravel(), minlength=8) / len(lbl)
+            centers = c8[frac >= 0.02]
+            d = np.min(np.stack([np.linalg.norm(band - c, axis=1) for c in centers]), axis=0)
+            return centers, float(max(np.percentile(d, 90), 6.0))
     d = np.min(np.stack([np.linalg.norm(band - c, axis=1) for c in centers]), axis=0)
     return centers, float(np.percentile(d, 90))
 
@@ -145,6 +152,9 @@ def _border_segment(rgb: np.ndarray, gain: float) -> np.ndarray:
     if fg.sum() < 0.01 * h * w or fg.sum() > 0.97 * h * w:
         raise VisionError(ErrorCode.analyze_failed, "No garment found on the flat-lay background.")
     fg = _clean(_shadow_trim(lab, fg, centers, tol))
+    if len(centers) > 2:   # textured background: drop thin attachments (hanger, strings) off the garment
+        r = max(3, int(0.012 * min(h, w)))
+        fg = _fill_holes(_largest_cc(cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_OPEN, _k(r)) > 0, 0.05))
     return fg
 
 
@@ -173,6 +183,12 @@ def _masks(rgb: np.ndarray, alpha: np.ndarray | None) -> list[np.ndarray]:
     except VisionError:
         gen = bal
     gen = _fill_holes(cv2.dilate(gen.astype(np.uint8), _k(1)) > 0)
+    # On busy backgrounds the re-segmented variants can bite into the garment or pick up
+    # attachments (hanger): keep them as gentle variations of the balanced cut instead.
+    if tight.sum() < 0.995 * bal.sum():
+        tight = cv2.erode(bal.astype(np.uint8), _k(1)) > 0
+    if gen.sum() > 1.01 * bal.sum():
+        gen = _fill_holes(cv2.dilate(bal.astype(np.uint8), _k(1)) > 0)
     return [tight, bal, gen]
 
 

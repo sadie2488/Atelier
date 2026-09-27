@@ -86,12 +86,29 @@ def _has_transparent_background(data: bytes) -> bool:
         return False
 
 
+def _no_person_visible(data: bytes) -> bool:
+    """True when the person segmenter finds (almost) no skin, hair or face: a garment laid flat
+    or on a hanger. The pose model alone can hallucinate a body on a t-shirt (nose visibility 0.99
+    on a flat red tee), but model photos always show some skin (>= 2.4% on every fixture)."""
+    try:
+        import io
+        import mediapipe as mp
+        import numpy as np
+        from backend.vision.mp_models import image_segmenter
+        with Image.open(io.BytesIO(data)) as im:
+            rgb = np.ascontiguousarray(np.asarray(im.convert("RGB")))
+        cm = image_segmenter().segment(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)).category_mask.numpy_view()
+        return float(np.isin(cm, (1, 2, 3)).mean()) < 0.005
+    except Exception:
+        return False
+
+
 def _build_any(data: bytes, category, garment_type):
     """Person pipeline first (unchanged for photos with a person); flat-lay/product-photo
     fallback (alpha cutout, else background flood-fill + GrabCut) when no person is detected.
     Same return shape either way. A photo that already has a transparent background is a garment
     cutout, so it goes straight to the flat-lay path (the pose model can mistake a tee for a torso)."""
-    if _has_transparent_background(data):
+    if _has_transparent_background(data) or _no_person_visible(data):
         return analyze_flatlay_bytes(data, category, garment_type)
     try:
         return build_candidates(data, category, garment_type)
