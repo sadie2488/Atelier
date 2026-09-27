@@ -1,0 +1,27 @@
+# Secrets: provided as platform environment variables, never baked into the image
+**/.env
+**/.env.*
+!**/.env.example
+
+# Personal photos and downloaded model files (models download on first use)
+backend/avatar/models/
+backend/vision/models/
+**/*.jpeg
+**/*.jpg
+**/*.heic
+
+# Local state and caches
+media/
+**/__pycache__/
+**/*.pyc
+.venv*/
+.pytest_cache/
+
+# Not needed by the backend image
+frontend/
+archive/
+fixtures/
+atelier-setup/
+closet-claude-setup/
+.git/
+.claude/
