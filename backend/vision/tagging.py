@@ -17,15 +17,15 @@ log = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 12.0
 MAX_LEN = 60
 
-_COMMON = ("pattern", "closure", "formality")
+_COMMON = ("pattern", "closure", "formality", "season", "warmth")
 KEYS_BY_CATEGORY = {
     "tops": ("subcategory", "sleeve", "neckline", "material", "fit") + _COMMON,
-    "bottoms": ("subcategory", "material", "length") + _COMMON,
+    "bottoms": ("subcategory", "material", "length", "rise") + _COMMON,
     "jackets": ("subcategory", "material", "length") + _COMMON,
 }
 _HINTS = {
     "tops": "fit is one of tight/regular/loose",
-    "bottoms": "length is one of thigh/knee/calf/full",
+    "bottoms": "length is one of thigh/knee/calf/full; rise is one of high/mid/low",
     "jackets": "length is one of cropped/regular/long",
 }
 
@@ -37,7 +37,8 @@ def _prompt(category: str) -> str:
     return (
         f"This image is a single clothing item (category: {category}). Return ONLY a JSON object "
         f"with exactly these keys: {', '.join(keys)}. Each value is a short lowercase phrase. "
-        f"formality is one of casual/smart/dressy; {_HINTS[category]}. "
+        f"formality is one of casual/smart/dressy; season is one of spring/summer/fall/winter/all-season; "
+        f"warmth is one of light/mid/heavy; {_HINTS[category]}. "
         "Use \"none\" for closure if there is none."
     )
 
