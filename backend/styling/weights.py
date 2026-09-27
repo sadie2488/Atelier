@@ -40,6 +40,13 @@ MONOCHROME_BASE = 0.40
 MONOCHROME_L_BONUS = 0.30
 MONOCHROME_L_SPREAD_TARGET = 60.0
 
+# S-S2 rung 4 (monochrome_highlight): eligibility gate, not a scoring term. A same-family
+# top+bottom pair only qualifies for this strategy label once their L* values are far enough
+# apart that the look reads as deliberately tonal rather than flat/same-shade. Distinct from
+# MONOCHROME_L_SPREAD_TARGET above, which shapes the *score* of an already-same-family pair
+# regardless of strategy label.
+MONOCHROME_HIGHLIGHT_MIN_L_SPREAD = 20.0
+
 # Analogous: hue angle <= 40 degrees apart (S-S2 rung 3). Score falls off mildly with angle.
 HUE_ANALOGOUS_MAX_DEG = 40.0
 ANALOGOUS_BASE_SCORE = 0.80

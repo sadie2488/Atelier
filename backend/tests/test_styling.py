@@ -164,6 +164,82 @@ def test_complementary_strategy_requires_low_chroma_piece():
     assert results == [] or all(r[0] != Strategy.complementary for r in results)
 
 
+def test_monochrome_highlight_strategy_eligible_with_wide_l_spread():
+    """S-S2 rung 4: same family, L* spread >= 20 -> monochrome_highlight."""
+    top = _item("top_1", _color(70, 30, 260, family="blue", name="light_blue"))
+    bottom = _item("bottom_1", _color(25, 25, 260, family="blue", name="navy_blue"))  # spread 45
+    [(strategy, *_rest)] = list(generate_candidates([top], [bottom], []))
+    assert strategy == Strategy.monochrome_highlight
+
+
+def test_monochrome_highlight_silent_when_l_spread_too_narrow():
+    """S-S3: same family but a flat L* spread (< 20) does not qualify -- stays silent rather
+    than degrading into a different strategy."""
+    top = _item("top_1", _color(50, 30, 260, family="blue", name="blue_a"))
+    bottom = _item("bottom_1", _color(55, 30, 260, family="blue", name="blue_b"))  # spread 5
+    results = list(generate_candidates([top], [bottom], []))
+    assert results == []
+
+
+def test_monochrome_highlight_allows_one_optional_accent_jacket():
+    """S-S2 rung 4: the optional accent piece is the existing single optional jacket layer --
+    a monochrome_highlight pair is offered both without and with a compatible jacket."""
+    top = _item("top_1", _color(70, 30, 260, family="blue", name="light_blue"))
+    bottom = _item("bottom_1", _color(25, 25, 260, family="blue", name="navy_blue"))
+    jacket = _item("jacket_1", NEUTRAL_BLACK)
+    results = list(generate_candidates([top], [bottom], [jacket]))
+    assert all(strategy == Strategy.monochrome_highlight for strategy, *_ in results)
+    jacket_ids = {r[3]["id"] if r[3] else None for r in results}
+    assert None in jacket_ids
+    assert "jacket_1" in jacket_ids
+
+
+_SANDWICH_TOP = _item("top_1", _color(45, 40, 250, family="blue", name="sandwich_top"))
+_SANDWICH_BOTTOM = _item("bottom_1", _color(40, 35, 150, family="green", name="sandwich_bottom"))
+_SANDWICH_JACKET = _item("jacket_1", _color(50, 30, 140, family="green", name="sandwich_jacket"))
+
+
+def test_sandwich_requires_jacket_family_matching_bottom_and_contrasting_top():
+    """S-S2 rung 5: jacket and bottom share a family; the top's family differs (contrasts)."""
+    # Sanity check: the base top+bottom pair alone must not already resolve under rungs 1-4,
+    # or the ladder-priority rule (a pair labeled once) would keep sandwich from ever firing.
+    assert _classify_pair_for_test(_SANDWICH_TOP, _SANDWICH_BOTTOM) is None
+
+    [(strategy, top, bottom, jacket, score)] = list(
+        generate_candidates([_SANDWICH_TOP], [_SANDWICH_BOTTOM], [_SANDWICH_JACKET])
+    )
+    assert strategy == Strategy.sandwich
+    assert jacket["id"] == "jacket_1"
+    assert 0.0 <= score <= 1.0
+
+
+def test_sandwich_dormant_with_no_suitable_jacket():
+    """S-S2 rung 5 / S-S3: a closet with no jacket at all leaves sandwich dormant -- correct
+    behavior, not a bug -- since the strategy needs a jacket for its third color slot."""
+    results = list(generate_candidates([_SANDWICH_TOP], [_SANDWICH_BOTTOM], []))
+    assert results == []
+
+
+def test_sandwich_silent_when_jacket_family_does_not_match_bottom():
+    """S-S3: a jacket whose family differs from the bottom's does not form a 'bread' pair."""
+    mismatched_jacket = _item("jacket_2", _color(50, 30, 30, family="orange", name="orange_jacket"))
+    results = list(generate_candidates([_SANDWICH_TOP], [_SANDWICH_BOTTOM], [mismatched_jacket]))
+    assert results == []
+
+
+def test_sandwich_silent_when_top_shares_family_with_jacket_and_bottom():
+    """S-S3: if the top is the same family as the jacket/bottom, there is no contrast -- this
+    is a monochrome look, not a sandwich, and sandwich must stay silent rather than mislabel it."""
+    same_family_top = _item("top_2", _color(45, 40, 150, family="green", name="green_top"))
+    results = list(generate_candidates([same_family_top], [_SANDWICH_BOTTOM], [_SANDWICH_JACKET]))
+    assert results == []
+
+
+def _classify_pair_for_test(top, bottom):
+    from backend.styling.strategies import _classify_pair
+    return _classify_pair(top, bottom)
+
+
 def test_strategy_stays_silent_when_ineligible():
     """S-S3: a pair matching none of the implemented rungs yields no candidate at all."""
     top = _item("top_1", BASE_NAVY)
