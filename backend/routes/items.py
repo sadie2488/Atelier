@@ -273,3 +273,17 @@ def rename_item(slug: str, body: RenameRequest, db=Depends(get_db)):
         update["attributes"] = attrs
     db["items"].update_one({"id": slug}, {"$set": update})
     return _to_item(db["items"].find_one({"id": slug}))
+
+
+@router.delete("/{slug}")
+def archive_item(slug: str, db=Depends(get_db)):
+    """2.6.0: remove an item from the closet by moving its document to `items_archive`
+    (reversible; the cutout image and everything stored under the id are kept)."""
+    doc = db["items"].find_one({"id": slug})
+    if doc is None:
+        return _error(ErrorCode.not_found, f"No item with id {slug!r}.")
+    archived = {k: v for k, v in doc.items() if k != "_id"}
+    if db["items_archive"].find_one({"id": slug}) is None:
+        db["items_archive"].insert_one(archived)
+    db["items"].delete_one({"id": slug})
+    return RejectResponse(ok=True)

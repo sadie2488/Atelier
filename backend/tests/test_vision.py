@@ -472,3 +472,16 @@ def test_auto_tagging_failure_still_saves_without_attributes(client, fake_db, mo
     assert item.attributes == {}
     assert fake_db["items"].find_one({"id": item.id}) is not None
     _cleanup_media(slug=item.id)
+
+
+def test_archive_item_moves_it_out_of_the_closet(client, memory_db):
+    import json
+    from pathlib import Path
+    fx = Path(__file__).resolve().parents[2] / "contract" / "fixtures" / "api" / "get_items_detail.response.json"
+    doc = json.loads(fx.read_text(encoding="utf-8"))
+    memory_db["items"].insert_one(dict(doc))
+    r = client.delete(f"/api/items/{doc['id']}")
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert client.get(f"/api/items/{doc['id']}").json()["error"]["code"] == "not_found"
+    assert memory_db["items_archive"].find_one({"id": doc["id"]})["id"] == doc["id"]
+    assert client.delete(f"/api/items/{doc['id']}").json()["error"]["code"] == "not_found"

@@ -21,7 +21,7 @@ from .enums import (
 )
 from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "2.5.0"
+CONTRACT_VERSION = "2.6.0"
 
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
 SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
@@ -372,6 +372,7 @@ ENDPOINTS = [
     ("GET",  "/items",              None,                   ItemListResponse),
     ("GET",  "/items/{slug}",       None,                   Item),
     ("PATCH", "/items/{slug}",      RenameRequest,          Item),
+    ("DELETE", "/items/{slug}",     None,                   RejectResponse),  # 2.6.0: archive (reversible)
     ("POST", "/outfits/generate",   OutfitsGenerateRequest, OutfitsGenerateResponse),
     ("POST", "/avatar/scan",        "multipart",            AvatarScanResponse),
     ("GET",  "/avatar/{avatar_id}", None,                   Avatar),
