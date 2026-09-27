@@ -9,3 +9,8 @@ node_modules/
 .DS_Store
 .claude/settings.local.json
 media/
+
+# personal scan photos: never commit
+backend/avatar/models/*.jpeg
+backend/avatar/models/*.jpg
+backend/avatar/models/*.png
