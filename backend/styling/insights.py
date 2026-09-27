@@ -17,7 +17,7 @@ from functools import lru_cache
 from contract.tools.color import color_table, lab_to_lch
 
 from backend.styling import weights as W
-from backend.styling.scorer import score_items
+from backend.styling.scorer import hue_diff, score_items
 from backend.styling.strategies import generate_candidates
 
 UNMAPPED = "unmapped"
@@ -54,6 +54,27 @@ def _family_order() -> tuple[str, ...]:
         if fam not in order:
             order.append(fam)
     return tuple(order)
+
+
+@lru_cache(maxsize=1)
+def _chromatic_centers() -> tuple[tuple[str, float], ...]:
+    """(family, center hue) for every colors.json center that isn't achromatic."""
+    _, table = color_table()
+    return tuple(
+        (e["family"], lab_to_lch(tuple(e["lab"]))[2]) for e in table.values() if e["family"] != "achromatic"
+    )
+
+
+def _insights_family(pc: dict) -> str:
+    """Family used for the palette summary. Normally the stored family; but a visibly chromatic
+    color (not is_neutral) whose nearest colors.json center was achromatic or unmapped (e.g. a
+    dark evergreen stored as "charcoal") is grouped with the chromatic family nearest its hue,
+    so the page never shows green as missing while a green item sits in the closet."""
+    fam = pc["family"]
+    if fam not in ("achromatic", UNMAPPED) or pc["is_neutral"]:
+        return fam
+    hue = lab_to_lch(tuple(pc["lab"]))[2]
+    return min(_chromatic_centers(), key=lambda fc: hue_diff(hue, fc[1]))[0]
 
 
 def _lab_to_hex(lab: tuple[float, float, float]) -> str:
@@ -205,13 +226,18 @@ def compute_insights(items: list[dict], family_counts: dict[str, int] | None = N
 
     by_family: dict[str, list[dict]] = {}
     neutral_count = 0
+    item_family: dict[int, str] = {}
     for item in items:
         pc = item["primary_color"]
-        by_family.setdefault(pc["family"], []).append(item)
+        fam = _insights_family(pc)
+        item_family[id(item)] = fam
+        by_family.setdefault(fam, []).append(item)
         if pc["is_neutral"]:
             neutral_count += 1
 
-    if family_counts is None:
+    # A regrouped item makes stored-family counts (e.g. the Mongo aggregation) disagree with
+    # the summary; count from items instead so bars and missing_families stay consistent.
+    if family_counts is None or any(item_family[id(i)] != i["primary_color"]["family"] for i in items):
         family_counts = {fam: len(its) for fam, its in by_family.items()}
 
     present_families = [
@@ -238,7 +264,7 @@ def compute_insights(items: list[dict], family_counts: dict[str, int] | None = N
             "category": item["category"],
             "hex": item["primary_color"]["hex"],
             "display_name": item["primary_color"].get("display_name"),
-            "family": item["primary_color"]["family"],
+            "family": item_family[id(item)],
         }
         for item in sorted_items
     ]

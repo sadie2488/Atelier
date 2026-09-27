@@ -121,6 +121,11 @@ VARIETY_REPEAT_PENALTY = 0.15
 # the response.
 EXPLAIN_BUDGET_SECONDS = 2.5
 
+# A sandwich explanation only claims the jacket and bottom "share a color" when their primary
+# colors are this close (CIEDE2000); otherwise it says they share a family. Wording only --
+# never affects scores or strategy selection.
+EXPLAIN_SHARED_COLOR_MAX_DELTA_E = 10.0
+
 # ---- insights (backend/styling/insights.py, GET /api/insights/palette): closet-wide
 # summary heuristics that lean on the pair scorer, so their tunables live here too (S-T1).
 
