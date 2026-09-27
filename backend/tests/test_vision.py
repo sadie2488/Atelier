@@ -396,3 +396,23 @@ def test_rename_item_errors(client, memory_db):
     assert client.patch("/api/items/top_000000", json={"name": "x"}).json()["error"]["code"] == "not_found"
     r = client.patch("/api/items/top_000000", json={"name": ""})
     assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_request"
+
+
+def test_edit_item_attributes_merge_and_remove(client, memory_db):
+    import json
+    from pathlib import Path
+    from contract.schemas import Item
+    fx = Path(__file__).resolve().parents[2] / "contract" / "fixtures" / "api" / "get_items_detail.response.json"
+    doc = json.loads(fx.read_text(encoding="utf-8"))
+    doc["attributes"] = {"material": "wool", "fit": "loose"}
+    memory_db["items"].insert_one(dict(doc))
+    r = client.patch(f"/api/items/{doc['id']}", json={"attributes": {"material": "Mohair blend", "fit": "", "vibe": "cozy"}})
+    assert r.status_code == 200, r.text
+    out = Item.model_validate(r.json())
+    assert out.attributes == {"material": "Mohair blend", "vibe": "cozy"}
+    assert out.retailer_item_name == doc.get("retailer_item_name")
+
+
+def test_edit_item_needs_something_to_change(client, memory_db):
+    r = client.patch("/api/items/top_000000", json={})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "invalid_request"

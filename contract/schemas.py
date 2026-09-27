@@ -21,7 +21,7 @@ from .enums import (
 )
 from .tools.color import color_table, delta_e2000
 
-CONTRACT_VERSION = "2.3.0"
+CONTRACT_VERSION = "2.4.0"
 
 MEDIA_PATTERN = r"^/media/[a-z]+/[0-9a-zA-Z_.-]+\.png$"
 SLUG_PATTERN = r"^[a-z]+_[0-9a-f]{6}$"                  # item id, V-A2
@@ -180,8 +180,24 @@ SaveResponse = Item
 
 
 class RenameRequest(Strict):
-    """PATCH /items/{slug}. Renames a saved item (sets retailer_item_name). 2.3.0, additive."""
-    name: str = Field(min_length=1, max_length=80)
+    """PATCH /items/{slug}. Edits a saved item: its display name (retailer_item_name) and/or its
+    free-form details (attributes). 2.3.0 added `name`; 2.4.0 (additive) made it optional and added
+    `attributes`: merged into the stored map, any value is allowed (unknown words are fine), and an
+    empty string removes that key. The id and all other stored data never change."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    attributes: Optional[dict[str, str]] = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self):
+        if self.name is None and self.attributes is None:
+            raise ValueError("send a name, attributes, or both")
+        if self.attributes is not None:
+            if len(self.attributes) > 20:
+                raise ValueError("at most 20 attributes per request")
+            for k, v in self.attributes.items():
+                if not (1 <= len(k) <= 30) or len(v) > 60:
+                    raise ValueError("attribute keys are 1-30 characters and values at most 60")
+        return self
 
 
 class RejectRequest(Strict):

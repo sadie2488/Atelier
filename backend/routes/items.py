@@ -235,12 +235,27 @@ def get_item(slug: str, db=Depends(get_db)):
 
 @router.patch("/{slug}")
 def rename_item(slug: str, body: RenameRequest, db=Depends(get_db)):
-    """2.3.0: rename a saved item. Only the display name (retailer_item_name) changes; the id and
-    every piece of data stored under it stay the same."""
-    name = body.name.strip()
-    if not name:
-        return _error(ErrorCode.invalid_request, "The name can't be empty.")
-    if db["items"].find_one({"id": slug}) is None:
+    """2.3.0/2.4.0: edit a saved item's display name and/or its details (attributes). Only those
+    fields change; the id and every other piece of data stored under it stay the same."""
+    doc = db["items"].find_one({"id": slug})
+    if doc is None:
         return _error(ErrorCode.not_found, f"No item with id {slug!r}.")
-    db["items"].update_one({"id": slug}, {"$set": {"retailer_item_name": name}})
+    update: dict = {}
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            return _error(ErrorCode.invalid_request, "The name can't be empty.")
+        update["retailer_item_name"] = name
+    if body.attributes is not None:
+        attrs = dict(doc.get("attributes") or {})
+        for key, value in body.attributes.items():
+            key, value = key.strip(), value.strip()
+            if not key:
+                continue
+            if value:
+                attrs[key] = value          # any value is fine, known or not
+            else:
+                attrs.pop(key, None)        # "" removes the detail
+        update["attributes"] = attrs
+    db["items"].update_one({"id": slug}, {"$set": update})
     return _to_item(db["items"].find_one({"id": slug}))

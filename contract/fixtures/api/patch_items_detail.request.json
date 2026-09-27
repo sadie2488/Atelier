@@ -1,3 +1,7 @@
 {
-  "name": "My green midi dress"
+  "name": "My green midi dress",
+  "attributes": {
+    "material": "linen",
+    "fit": "relaxed"
+  }
 }
