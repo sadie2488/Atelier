@@ -26,7 +26,7 @@ from backend.vision import VisionError
 from backend.vision.failures import log_failure
 from backend.vision.ingest import build_candidates
 from backend.vision.session import (
-    TMP_MEDIA_DIR, delete_session, load_session, new_temp_handle, save_session, sweep_expired,
+    delete_session, load_session, new_temp_handle, save_session, sweep_expired, tmp_media_dir,
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -97,13 +97,14 @@ async def analyze(
         return _error(ErrorCode.analyze_failed, f"Analyze failed: {e}")
 
     handle = new_temp_handle()
-    TMP_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_dir = tmp_media_dir()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
     api_candidates: list[Candidate] = []
     session_candidates: list[dict] = []
     for i, c in enumerate(candidates):
         filename = f"{handle}_{i}.png"
-        Image.fromarray(c["rgba"], mode="RGBA").save(TMP_MEDIA_DIR / filename)
+        Image.fromarray(c["rgba"], mode="RGBA").save(tmp_dir / filename)
         url = f"/media/tmp/{filename}"
 
         primary = ExtractedColor(**c["primary_color"])
@@ -164,7 +165,7 @@ def save(body: SaveRequest, db=Depends(get_db)):
     except VisionError as e:
         return _error(e.code, e.message)
 
-    src = TMP_MEDIA_DIR / cand["filename"]
+    src = tmp_media_dir() / cand["filename"]
     dest_dir = config.MEDIA_DIR / "items"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / f"{slug}.png"

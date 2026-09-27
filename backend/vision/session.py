@@ -1,12 +1,21 @@
 """Temp-handle session bookkeeping between analyze and save/reject (V-A3, V-A4).
 
 Two directories, deliberately distinct:
-  - `config.MEDIA_DIR / "tmp"` -- the three candidate PNGs, served at /media/tmp/... per
-    ARTIFACT_SPEC and MEDIA_PATTERN (the URL's directory segment must be lowercase letters
-    only, so it cannot be `config.TEMP_DIR`'s literal name).
+  - `tmp_media_dir()` (`config.MEDIA_DIR / "tmp"`) -- the three candidate PNGs, served at
+    /media/tmp/... per ARTIFACT_SPEC and MEDIA_PATTERN (the URL's directory segment must be
+    lowercase letters only, so it cannot be `config.TEMP_DIR`'s literal name).
   - `config.TEMP_DIR` (media/_tmp) -- one small JSON file per handle holding everything not in
     the API response (per-candidate anchors, full color dicts, automated check results) so
     /save and /reject don't need to re-run segmentation. TTL-swept on startup (V-A4).
+
+Test hygiene (re-dispatch fix): `tmp_media_dir()` is a function, not a module-level constant,
+so it re-reads `config.MEDIA_DIR` on every call. A module-level `TMP_MEDIA_DIR =
+config.MEDIA_DIR / "tmp"` would bind to whatever `config.MEDIA_DIR` was at import time (process
+start, before any test's `isolated_media_dir` fixture monkeypatches it) and every caller that
+imported that stale constant -- this module's own `delete_session`, and
+`backend/routes/items.py` -- would keep writing real candidate PNGs into `media/tmp` for the
+life of the test process regardless of the monkeypatch. Calling `tmp_media_dir()` instead keeps
+every caller pointed at the current (per-test, isolated) `config.MEDIA_DIR`.
 """
 import json
 import secrets
@@ -15,7 +24,9 @@ from pathlib import Path
 
 from backend import config
 
-TMP_MEDIA_DIR = config.MEDIA_DIR / "tmp"
+
+def tmp_media_dir() -> Path:
+    return config.MEDIA_DIR / "tmp"
 
 
 def new_temp_handle() -> str:
@@ -44,8 +55,9 @@ def delete_session(handle: str) -> None:
     p = _meta_path(handle)
     if p.exists():
         p.unlink()
-    if TMP_MEDIA_DIR.exists():
-        for f in TMP_MEDIA_DIR.glob(f"{handle}_*.png"):
+    tmp_dir = tmp_media_dir()
+    if tmp_dir.exists():
+        for f in tmp_dir.glob(f"{handle}_*.png"):
             f.unlink(missing_ok=True)
 
 
