@@ -502,6 +502,12 @@ def _render_with_generation(client, memory_db, monkeypatch, tmp_path, generate_f
     monkeypatch the Gemini call, POST /render, and wait for the background job to settle."""
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
     monkeypatch.setattr(gen_client, "generate_tryon", generate_fn)
+    # These synthetic "generated" images are flat color blocks -- real pose detection on them
+    # would (correctly) find nobody. Force that path deterministically rather than relying on
+    # MediaPipe's behavior on a non-photo, so these tests exercise the scaled-source-landmark
+    # fallback and stay fast; the generated-image-detection path itself is covered directly
+    # against verify.verify_colors below.
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
     avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
     _seed_colored_items(memory_db, tmp_path, RED_LAB, BLUE_LAB)
 
@@ -556,22 +562,145 @@ def test_generation_wrong_color_fails_verification(client, memory_db, monkeypatc
     assert settled["generated_url"] is None
 
 
-def test_verify_colors_directly_pass_and_fail():
-    landmarks = {name: [x, y] for name, (x, y, _v) in _good_landmarks().items()}
+def _source_landmarks_dict():
+    return {name: [x, y] for name, (x, y, _v) in _good_landmarks().items()}
+
+
+def _paint_patch(img: np.ndarray, point, color, half=40):
+    """Paint a square bigger than verify._PATCH centered on `point`, so a sample there is
+    unambiguous even with float->int rounding at the edges."""
+    x, y = point
+    h, w = img.shape[:2]
+    x0, x1 = max(0, int(x - half)), min(w, int(x + half))
+    y0, y1 = max(0, int(y - half)), min(h, int(y + half))
+    img[y0:y1, x0:x1] = color
+
+
+def test_verify_colors_directly_pass_and_fail(monkeypatch):
+    # Deterministic: force the scaled-source-landmark fallback (see _render_with_generation for
+    # why real detection on a flat-color synthetic image isn't relied on here).
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    source_landmarks = _source_landmarks_dict()
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+
     good = np.asarray(_half_and_half_image((255, 0, 0), (0, 0, 255)))
-    ok, reason = verify.verify_colors(
-        good, landmarks, PERSON_PHOTO_SIZE,
-        [(GarmentType.shirt, {"lab": RED_LAB}), (GarmentType.pants, {"lab": BLUE_LAB})],
-    )
+    ok, reason = verify.verify_colors(good, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants)
     assert ok, reason
 
     bad = np.asarray(_half_and_half_image((0, 255, 0), (0, 255, 0)))
-    ok, reason = verify.verify_colors(
-        bad, landmarks, PERSON_PHOTO_SIZE,
-        [(GarmentType.shirt, {"lab": RED_LAB}), (GarmentType.pants, {"lab": BLUE_LAB})],
-    )
+    ok, reason = verify.verify_colors(bad, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants)
     assert not ok
     assert "dE2000" in reason
+
+
+def test_verify_samples_pose_detected_on_generated_image_when_available(monkeypatch):
+    """Re-dispatch fix 1: Gemini re-frames/re-poses the person, so the scaled SOURCE landmarks
+    can land on the wrong region. Detecting pose on the GENERATED image itself must be preferred,
+    and actually used to pick the sample point, not just attempted."""
+    source_landmarks = _source_landmarks_dict()
+    source_size = PERSON_PHOTO_SIZE  # (420, 720)
+
+    # A pose MediaPipe would find directly on the generated image: same shape as the source pose
+    # but shifted well away from where the scaled source landmarks would land.
+    shifted = {name: (x + 600.0, y + 200.0, v) for name, (x, y, v) in _good_landmarks().items()}
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: shifted)
+
+    gen_w, gen_h = 1200, 1000
+    img = np.zeros((gen_h, gen_w, 3), dtype=np.uint8)
+    img[:, :] = (0, 255, 0)  # green background everywhere except the painted patches below
+
+    shifted_points = {name: (x, y) for name, (x, y, _v) in shifted.items()}
+    top_point = verify._region_point(GarmentType.shirt, shifted_points)
+    bottom_point = verify._region_point(GarmentType.pants, shifted_points)
+    _paint_patch(img, top_point, (255, 0, 0))
+    _paint_patch(img, bottom_point, (0, 0, 255))
+
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+
+    ok, reason = verify.verify_colors(img, source_landmarks, source_size, top=shirt, bottom=pants)
+    assert ok, reason  # sampled at the GENERATED pose's regions, which are painted correctly
+
+    # Without generated-image detection, the scaled SOURCE landmarks land on the green
+    # background (a different region entirely) and verification must fail instead of silently
+    # passing on the wrong patch.
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    ok, reason = verify.verify_colors(img, source_landmarks, source_size, top=shirt, bottom=pants)
+    assert not ok
+
+
+def test_dress_skips_bottom_verification(monkeypatch):
+    """Re-dispatch fix 2 (A-R5): a dress covers the bottom, so the bottom's color is never
+    checked when the top slot is a dress -- a real render observed this failing every time
+    because the bottom garment (layered under the dress) is not what's actually visible there."""
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    source_landmarks = _source_landmarks_dict()
+    # top-half (dress region) red, matching the dress; bottom-half green, matching neither the
+    # bottom's stored color nor anything else -- would fail if the bottom were checked.
+    img = np.asarray(_half_and_half_image((255, 0, 0), (0, 255, 0)))
+    dress = (GarmentType.dress, {"primary_color": {"lab": RED_LAB}})
+    bottom = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+
+    ok, reason = verify.verify_colors(img, source_landmarks, PERSON_PHOTO_SIZE, top=dress, bottom=bottom)
+    assert ok, reason
+
+
+def test_jacket_present_skips_top_verification(monkeypatch):
+    """Re-dispatch fix 2 (A-R4): a jacket draws over the top, so the top's own color is never
+    checked when a jacket is present -- only the jacket and the bottom are."""
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    source_landmarks = _source_landmarks_dict()
+    # top-half green (the jacket's real color, and NOT the shirt's stored color -- would fail if
+    # the shirt were checked); bottom-half blue, matching the bottom.
+    img = np.asarray(_half_and_half_image((0, 255, 0), (0, 0, 255)))
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})  # deliberately wrong
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+    jacket = (GarmentType.jacket, {"primary_color": {"lab": GREEN_LAB}})
+
+    ok, reason = verify.verify_colors(
+        img, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants, jacket=jacket,
+    )
+    assert ok, reason
+
+
+def test_primary_or_secondary_color_match(monkeypatch):
+    """Re-dispatch fix 3 / DECISIONS V-C6: a hit counts against the item's primary OR secondary
+    color, not primary alone."""
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    source_landmarks = _source_landmarks_dict()
+    img = np.asarray(_half_and_half_image((0, 255, 0), (0, 0, 255)))  # top-half green, bottom blue
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}, "secondary_color": {"lab": GREEN_LAB}})
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+
+    ok, reason = verify.verify_colors(img, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants)
+    assert ok, reason
+
+
+def test_debug_image_saved_on_verification_failure(monkeypatch, tmp_path):
+    """Re-dispatch fix 4: a failing render dumps the generated image for a human to inspect,
+    under media/_preview/ (debug only -- media.save_png already keeps that out of durable
+    storage). A passing render must not leave one behind."""
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)
+    source_landmarks = _source_landmarks_dict()
+    shirt = (GarmentType.shirt, {"primary_color": {"lab": RED_LAB}})
+    pants = (GarmentType.pants, {"primary_color": {"lab": BLUE_LAB}})
+
+    bad = np.asarray(_half_and_half_image((0, 255, 0), (0, 255, 0)))  # matches neither item
+    ok, reason = verify.verify_colors(
+        bad, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants, render_id="render_debugtest",
+    )
+    assert not ok
+    debug_path = tmp_path / "_preview" / "render_debugtest_generated_debug.png"
+    assert debug_path.is_file()
+
+    good = np.asarray(_half_and_half_image((255, 0, 0), (0, 0, 255)))
+    ok, reason = verify.verify_colors(
+        good, source_landmarks, PERSON_PHOTO_SIZE, top=shirt, bottom=pants, render_id="render_debugtest_ok",
+    )
+    assert ok, reason
+    assert not (tmp_path / "_preview" / "render_debugtest_ok_generated_debug.png").is_file()
 
 
 def test_render_returns_immediately_even_with_a_slow_generator(client, memory_db, monkeypatch, tmp_path):
@@ -654,6 +783,7 @@ def test_dress_outfit_sends_bottom_to_generation(client, memory_db, monkeypatch,
 
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
     monkeypatch.setattr(gen_client, "generate_tryon", spy)
+    monkeypatch.setattr(verify.landmarks, "detect_landmarks", lambda rgb: None)  # see _render_with_generation
     avatar = _scan_ok(monkeypatch, client, memory_db, image_bytes=_synthetic_png_bytes(size=PERSON_PHOTO_SIZE))
 
     dress = _write_item(tmp_path, "dress_cccccc", GarmentType.dress, (0, 255, 0), {

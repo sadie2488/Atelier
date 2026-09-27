@@ -21,8 +21,8 @@ def save_png(img: Image.Image, subdir: str, filename: str) -> str:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / filename
     img.convert("RGBA").save(path, format="PNG")
-    # media/_preview/ is debug output only (backend/avatar/scripts/), never written through this
-    # function today, but guarded here too since it must never land in durable storage.
+    # media/_preview/ is debug output only (backend/avatar/scripts/, backend/avatar/verify.py on
+    # a failed verification) and must never land in durable storage.
     if "_preview" not in Path(subdir).parts:
         media_store.persist(path)
     return f"/media/{subdir}/{filename}"
