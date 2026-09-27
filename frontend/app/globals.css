@@ -62,7 +62,7 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
 .preview-bottom .gallery-button { width: 26px; height: 26px; border: 1px solid var(--muted-foreground); border-radius: 50%; display: grid; place-items: center; transition: background .2s, color .2s; }
 .preview-bottom .gallery-button:hover { background: var(--primary); color: var(--primary-foreground); }
 .gallery-button--text { color: var(--foreground); font: 9px var(--font-mono); letter-spacing: .08em; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.preview-backdrop { position: fixed; z-index: 20; inset: 0; background: oklch(0.95 0.02 80 / 78%); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: grid; place-items: center; padding: 18px; }
+.preview-backdrop { position: fixed; z-index: 45; inset: 0; background: oklch(0.95 0.02 80 / 78%); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: grid; place-items: center; padding: 18px; }
 .preview-dialog { width: min(600px, 100%); height: min(94vh, 900px); display: flex; flex-direction: column; }
 .preview-bar, .preview-bottom { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 12px 2px; font: 600 13px var(--font-mono); letter-spacing: .08em; }
 .gallery-button--close { display: grid; place-items: center; }
@@ -383,4 +383,20 @@ button:focus-visible { outline: 1px solid var(--primary); outline-offset: 4px; }
   .outfit-tray { gap: 8px; }
   .tray-slot { width: 46px; height: 58px; }
   .render-panel .stylist-avatar-box { height: min(66svh, 520px); }
+}
+
+/* ---- QA fixes ---- */
+/* Tray thumbnails: fixed box, never spill. */
+.tray-slot img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 2px; }
+.tray-slot { overflow: visible; }
+/* Render frames (closet dialog + stylist): a fixed portrait frame, image fit by height and centered.
+   3:4 instead of 1:2 so a landscape try-on isn't shrunk more than necessary. */
+.render-panel .stylist-avatar-box, .stylist-page .stylist-avatar-box { aspect-ratio: 3 / 4; max-width: calc(100vw - 32px); }
+.render-panel .stylist-avatar-box { max-height: calc(100svh - 150px); }
+.render-img { object-fit: contain; object-position: center; }
+.render-frame--generated { background: #fff; }
+.render-retry { margin-left: 10px; min-height: 30px; padding: 0 12px; font-size: 12px; }
+@media (max-width: 700px) {
+  .archive-content { padding-bottom: 84px; }
+  .has-tray .archive-content { padding-bottom: 164px; }
 }

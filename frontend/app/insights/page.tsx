@@ -44,7 +44,14 @@ export default function InsightsPage() {
     </main>
   );
 
-  const cutoutFor = (itemId: string) => itemsQ.items?.find((it) => it.id === itemId)?.cutout_url;
+  const itemFor = (itemId: string) => itemsQ.items?.find((it) => it.id === itemId);
+  const nameFor = (itemId: string) => {
+    const it = itemFor(itemId);
+    if (!it) return "a closet piece";
+    if (it.retailer_item_name) return it.retailer_item_name;
+    const color = it.primary_color.display_name ?? it.primary_color.name;
+    return `${it.garment_type.replace(/_/g, " ")} in ${String(color).replace(/_/g, " ")}`;
+  };
 
   return (
     <main className="editorial-page" aria-label="Palette insights">
@@ -114,13 +121,14 @@ export default function InsightsPage() {
             <p className="detail-kicker">most versatile</p>
             <div className="insights-versatile-row">
               {data.most_versatile.map((v) => {
-                const cutout = cutoutFor(v.item_id);
+                const cutout = itemFor(v.item_id)?.cutout_url;
+                const name = nameFor(v.item_id);
                 return (
                   <div className="insights-versatile-item" key={v.item_id}>
                     {cutout
-                      ? <img src={cutout} alt={v.item_id} />
-                      : <span className="swatch-color swatch-color--text">{v.item_id.charAt(0).toUpperCase()}</span>}
-                    <small>{v.item_id} &middot; {v.outfit_count} outfit{v.outfit_count === 1 ? "" : "s"}</small>
+                      ? <img src={cutout} alt={name} />
+                      : <span className="swatch-color swatch-color--text">{name.charAt(0).toUpperCase()}</span>}
+                    <small>{name} &middot; {v.outfit_count} outfit{v.outfit_count === 1 ? "" : "s"}</small>
                   </div>
                 );
               })}

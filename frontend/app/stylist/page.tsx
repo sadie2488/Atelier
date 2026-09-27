@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
 import { CATEGORIES, generateOutfits, type Category, type Item } from "@/lib/api";
@@ -13,6 +13,12 @@ type Lists = Record<Category, Item[]>;
 const toFront = (list: Item[], id: string | null | undefined) => {
   const hit = id ? list.find((g) => g.id === id) : undefined;
   return hit ? [hit, ...list.filter((g) => g.id !== hit.id)] : list;
+};
+
+// The closet's outfit tray (sessionStorage), carried one way into the stylist on load.
+type Tray = Partial<Record<"top" | "bottom" | "jacket", string>>;
+const readTray = (): Tray => {
+  try { const v = sessionStorage.getItem("atelier:outfit-tray"); return v ? (JSON.parse(v) as Tray) : {}; } catch { return {}; }
 };
 
 // Plain-words label for a strategy code, e.g. "neutral_anchor" -> "neutral anchor".
@@ -28,12 +34,21 @@ export default function StylistPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<"none" | "failed" | null>(null);
   const [noJacket, setNoJacket] = useState(false);
+  const trayApplied = useRef(false);
 
   // Lists keep the server's order (newest first); only "generate outfit" moves items to position 0.
   useEffect(() => {
     if (!itemsQ.items) return;
     const g = itemsQ.items;
-    setLists({ tops: g.filter((x) => x.category === "tops"), bottoms: g.filter((x) => x.category === "bottoms"), jackets: g.filter((x) => x.category === "jackets") });
+    const base: Lists = { tops: g.filter((x) => x.category === "tops"), bottoms: g.filter((x) => x.category === "bottoms"), jackets: g.filter((x) => x.category === "jackets") };
+    // Put the closet's tray pieces at index 0 whenever the lists are (re)built; no render (renders stay explicit).
+    const tray = readTray();
+    setLists({ tops: toFront(base.tops, tray.top), bottoms: toFront(base.bottoms, tray.bottom), jackets: toFront(base.jackets, tray.jacket) });
+    if (!trayApplied.current && (tray.top || tray.bottom || tray.jacket)) {
+      trayApplied.current = true;
+      setIdx({ tops: 0, bottoms: 0, jackets: 0 });
+      setNoJacket(!(tray.jacket && base.jackets.some((x) => x.id === tray.jacket)));
+    }
   }, [itemsQ.items]);
 
   // Render only right after "generate outfit" positions the lists; never on swipe or selection change.
@@ -61,6 +76,8 @@ export default function StylistPage() {
 
   const generate = async () => {
     setBusy(true); setNotice(null);
+    // Clear the previous look at once so only the plain avatar + "styling…" show while we wait.
+    setExplanation(null); setWhy(null); clearRender();
     try {
       const outfits = await generateOutfits(5);
       const best = outfits[0];
@@ -97,10 +114,10 @@ export default function StylistPage() {
       </div>
 
       <div className="stylist-avatar">
-        <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}`}>
+        <div className={`stylist-avatar-box${view?.pending || loading || busy ? " render-frame--pending" : ""}${view?.generated ? " render-frame--generated" : ""}`}>
           <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
         </div>
-        <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : view && !view.generated ? "couldn’t style this one — generate again" : " "}</p>
+        <p className="render-status" aria-live="polite">{view?.pending || loading || busy ? "styling…" : view && !view.generated ? "couldn’t style this one — generate again" : " "}</p>
         {explanation && <p className="stylist-explain">{explanation}</p>}
         {why && <p className="stylist-why">why this works: {strategyLabel(why.strategy)} &middot; {Math.round(why.score * 100)}%</p>}
       </div>

@@ -8,7 +8,7 @@ const karla = Karla({ variable: "--font-karla", subsets: ["latin"], weight: ["40
 const vollkorn = Vollkorn({ variable: "--font-vollkorn", subsets: ["latin"], style: ["normal", "italic"], weight: ["400", "500"] });
 
 export const metadata: Metadata = {
-  title: "FORM / 06",
+  title: "Atelier",
   description: "An editorial wardrobe and stylist.",
 };
 

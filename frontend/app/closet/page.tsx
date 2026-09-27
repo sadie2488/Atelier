@@ -92,7 +92,7 @@ export default function ClosetPage() {
       </aside>
 
       <div className="archive-content">
-        <header className="mobile-header"><span>FORM / 06</span><span>CLOSET</span></header>
+        <header className="mobile-header"><span>ATELIER</span><span>CLOSET</span></header>
         {itemsQ.isPending && <Loader label="Fetching your closet…" />}
         {itemsQ.isError && (
           <StatePanel title="The closet is out of reach" actions={<button type="button" className="solid-btn" onClick={itemsQ.refetch}>try again</button>}>
@@ -156,7 +156,7 @@ export default function ClosetPage() {
           </div>
         </div>
       )}
-      {trayFilled && (
+      {trayFilled && !renderOpen && (
         <div className="outfit-tray" role="region" aria-label="Outfit">
           {SLOTS.map((slot) => {
             const it = trayItem(slot);
@@ -185,12 +185,12 @@ export default function ClosetPage() {
             {(() => {
               const shown = view?.generated ?? avatar.avatar_url; // only the Nano Banana image or the plain avatar, never the coordinate-placed preview
               return (
-                <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}`}>
+                <div className={`stylist-avatar-box${view?.pending || loading ? " render-frame--pending" : ""}${view?.generated ? " render-frame--generated" : ""}`}>
                   <img key={shown} className={`render-img${view?.generated && shown === view.generated ? " render-img--generated" : ""}`} src={shown} alt="Your avatar wearing this outfit" />
                 </div>
               );
             })()}
-            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : view && !view.generated ? "couldn’t style this one — press see it on me to try again" : " "}</p>
+            <p className="render-status" aria-live="polite">{view?.pending || loading ? "styling…" : view && !view.generated ? <>couldn’t style this one<button type="button" className="ghost-btn render-retry" onClick={seeItOnMe}>try again</button></> : " "}</p>
           </div>
         </div>
       )}
