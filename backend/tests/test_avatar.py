@@ -37,6 +37,14 @@ def _no_network_generation(monkeypatch):
     monkeypatch.setattr(gen_client, "generate_tryon", _blocked)
 
 
+@pytest.fixture(autouse=True)
+def _no_prewarm(monkeypatch):
+    """Scan-time prewarm is off by default in tests so it never races a test's own renders;
+    the prewarm tests turn it back on."""
+    from backend.avatar import prewarm
+    monkeypatch.setattr(prewarm, "PREWARM_ENABLED", False)
+
+
 def _wait_until(predicate, timeout=2.0, interval=0.01):
     """Poll a background job's result without sleeping longer than necessary."""
     deadline = time.perf_counter() + timeout
@@ -1372,3 +1380,94 @@ def test_bottom_with_hallucinated_hip_anchors_is_placed_body_width_and_upright(t
     assert abs(width / (WAISTBAND_TO_HIP_JOINT * rig.hip_width) - 1.0) < 0.1
     # upright: the top row is as wide as the whole layer (a rotated rectangle's is not)
     assert width >= 0.95 * (xs.max() - xs.min() + 1)
+
+
+# ---------------------------------------------------------------- prewarm after scan
+
+def _seed_fixture_closet(memory_db, media_dir: Path):
+    import json
+    items = json.loads((Path(__file__).resolve().parents[2] / "contract" / "fixtures" / "items.json").read_text())
+    (media_dir / "items").mkdir(parents=True, exist_ok=True)
+    for it in items:
+        _solid_cutout((120, 120, 120)).save(media_dir / "items" / f"{it['id']}.png")
+        memory_db["items"].insert_one(dict(it))
+    return items
+
+
+def _enable_prewarm(monkeypatch):
+    from backend.avatar import prewarm
+    monkeypatch.setattr(prewarm, "PREWARM_ENABLED", True)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    return prewarm
+
+
+def test_scan_triggers_prewarm_up_to_cap_and_cache_hit(client, memory_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    prewarm = _enable_prewarm(monkeypatch)
+    _seed_fixture_closet(memory_db, tmp_path)
+    gen_calls = []
+    monkeypatch.setattr(gen_client, "generate_tryon",
+                        lambda person_img, *a, **k: gen_calls.append(1) or Image.new("RGB", person_img.size, (255, 255, 255)))
+    monkeypatch.setattr(verify, "verify_colors", lambda *a, **k: (True, "ok"))
+    prewarm_submits = []
+    real_submit = background.submit
+    monkeypatch.setattr(background, "submit", lambda *a, **k: prewarm_submits.append(k.get("prewarm")) or real_submit(*a, **k))
+
+    expected = prewarm.likely_outfits(list(memory_db["items"].find({})))
+    assert 1 <= len(expected) <= prewarm.PREWARM_MAX_OUTFITS
+
+    avatar = _scan_ok(monkeypatch, client, memory_db)
+    avatar_id = avatar["avatar_id"]
+    rids = [ids.render_id_for(avatar_id, *combo) for combo in expected]
+    _wait_until(lambda: all(
+        (d := memory_db["renders"].find_one({"render_id": r})) and d["status"] == "done" for r in rids), timeout=15)
+    assert len(prewarm_submits) == len(expected) <= prewarm.PREWARM_MAX_OUTFITS
+    assert all(prewarm_submits)                  # all went to the prewarm executor
+    assert len(gen_calls) == len(expected)
+
+    calls = []
+    monkeypatch.setattr(service, "render", lambda *a, **k: calls.append(1))
+    top_id, bottom_id, jacket_id = expected[0]
+    resp = client.post("/api/render", json={"avatar_id": avatar_id, "top_id": top_id, "bottom_id": bottom_id, "jacket_id": jacket_id})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "done" and resp.json()["render_id"] == rids[0]
+    assert calls == []
+
+
+def test_scan_response_not_delayed_by_prewarm(client, memory_db, monkeypatch, tmp_path):
+    import threading
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    prewarm = _enable_prewarm(monkeypatch)
+    release, started = threading.Event(), threading.Event()
+    monkeypatch.setattr(prewarm, "prewarm_avatar", lambda doc, db: (started.set(), release.wait(5)))
+    t0 = time.perf_counter()
+    _scan_ok(monkeypatch, client, memory_db)
+    elapsed = time.perf_counter() - t0
+    try:
+        assert started.wait(2)                   # prewarm did start ...
+        assert not release.is_set()              # ... and the scan returned while it was still blocked
+        assert elapsed < 4
+    finally:
+        release.set()
+
+
+def test_prewarm_disabled_submits_nothing(client, memory_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    prewarm = _enable_prewarm(monkeypatch)
+    monkeypatch.setattr(prewarm, "PREWARM_ENABLED", False)
+    _seed_fixture_closet(memory_db, tmp_path)
+    submits = []
+    monkeypatch.setattr(background, "submit", lambda *a, **k: submits.append(1))
+    avatar = _scan_ok(monkeypatch, client, memory_db)
+    time.sleep(0.3)
+    assert submits == []
+    assert memory_db["renders"].find_one({}) is None
+    assert prewarm.prewarm_avatar(memory_db["avatars"].find_one({"avatar_id": avatar["avatar_id"]}), memory_db) == []
+
+
+def test_gen_inputs_downscaled_to_max_long_side():
+    big = Image.new("RGB", (3000, 1500), (10, 20, 30))
+    small = gen_client._shrink(big)
+    assert max(small.size) == gen_client.GEN_INPUT_MAX_LONG_SIDE and small.size == (1024, 512)
+    tiny = Image.new("RGB", (200, 100))
+    assert gen_client._shrink(tiny) is tiny

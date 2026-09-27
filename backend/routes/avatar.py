@@ -17,7 +17,7 @@ from backend.db import get_db
 from contract.enums import ErrorCode
 from contract.schemas import Avatar, AvatarScanResponse, RenderJob, RenderRequest
 
-from backend.avatar import ids, service
+from backend.avatar import ids, prewarm, service
 from backend.avatar.errors import AvatarError
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ async def scan(image: UploadFile = File(...), db=Depends(get_db)):
         logger.exception("avatar: scan failed unexpectedly")
         return _error(ErrorCode.internal_error, "Could not process the photo.")
     db["avatars"].insert_one(doc)
+    prewarm.schedule(doc, db)  # background; never delays or fails the scan
     return AvatarScanResponse.model_validate(_clean(doc, AvatarScanResponse))
 
 

@@ -187,6 +187,7 @@ def render(
     bottom_doc: dict,
     jacket_doc: Optional[dict],
     renders_collection,
+    prewarm: bool = False,
 ) -> dict:
     """-> the render doc as inserted (contract fields). The local composite is built here and
     always succeeds from this point on (A-R2, A-R6). If generation is possible, the doc is
@@ -218,6 +219,6 @@ def render(
     renders_collection.insert_one(job)
 
     if can_generate:
-        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection)
+        background.submit(render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection, prewarm=prewarm)
 
     return job

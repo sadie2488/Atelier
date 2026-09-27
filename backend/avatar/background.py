@@ -22,8 +22,13 @@ from .errors import AvatarError
 
 logger = logging.getLogger(__name__)
 
-# Small pool: this is a hackathon demo, not a production fan-out. Never joined by request code.
-_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="avatar-gen")
+# Small pools: this is a hackathon demo, not a production fan-out. Never joined by request code.
+# User-requested renders and scan-time prewarm (prewarm.py) use SEPARATE executors, so a user's
+# click never queues behind prewarm jobs.
+USER_WORKERS = 4
+PREWARM_WORKERS = 2
+_EXECUTOR = ThreadPoolExecutor(max_workers=USER_WORKERS, thread_name_prefix="avatar-gen")
+_PREWARM_EXECUTOR = ThreadPoolExecutor(max_workers=PREWARM_WORKERS, thread_name_prefix="avatar-gen-prewarm")
 
 
 def submit(
@@ -33,8 +38,10 @@ def submit(
     bottom_doc: dict,
     jacket_doc: Optional[dict],
     renders_collection,
+    prewarm: bool = False,
 ):
-    _EXECUTOR.submit(_run, render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection)
+    executor = _PREWARM_EXECUTOR if prewarm else _EXECUTOR
+    executor.submit(_run, render_id, avatar_doc, top_doc, bottom_doc, jacket_doc, renders_collection)
 
 
 def _update(renders_collection, render_id: str, status: RenderStatus, generated_url: Optional[str]):
