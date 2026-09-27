@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
 import { Loader, StatePanel } from "@/components/StatePanel";
 import { CATEGORIES, createRender, generateOutfits, pollRender, type Category, type Item } from "@/lib/api";
@@ -19,6 +20,10 @@ const toFront = (list: Item[], id: string | null | undefined) => {
 const strategyLabel = (strategy: string) => strategy.replace(/_/g, " ");
 
 export default function StylistPage() {
+  return <Suspense fallback={<main className="flow-page"><Loader label="Setting up the studio…" /></main>}><StylistStudio /></Suspense>;
+}
+
+function StylistStudio() {
   const avatar = useStoredAvatar();
   const itemsQ = useItems();
   const [lists, setLists] = useState<Lists | null>(null);
@@ -71,6 +76,23 @@ export default function StylistPage() {
 
   // Cancel any in-flight render/poll on unmount.
   useEffect(() => () => { renderCtlRef.current?.abort(); }, []);
+
+  // "try it on" from the closet: move ?item= to the front of its list (like generate does) and render once.
+  const tryOnId = useSearchParams().get("item");
+  const tryOnDoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tryOnId || tryOnDoneRef.current === tryOnId || !lists || !avatarId) return;
+    const item = [...lists.tops, ...lists.bottoms, ...lists.jackets].find((g) => g.id === tryOnId);
+    if (!item) return;
+    tryOnDoneRef.current = tryOnId;
+    const c = item.category;
+    const next = { ...lists, [c]: toFront(lists[c], item.id) };
+    const nextIdx = { ...idx, [c]: 0 };
+    setLists(next); setIdx(nextIdx); setExplanation(null); setWhy(null);
+    setNoJacket(c !== "jackets");
+    const t = next.tops[nextIdx.tops], b = next.bottoms[nextIdx.bottoms];
+    if (t && b) requestRender(t.id, b.id, c === "jackets" ? item.id : null);
+  }, [tryOnId, lists, avatarId, idx, requestRender]);
 
   const seeItOnMe = () => { if (top && bottom) requestRender(top.id, bottom.id, jacket?.id ?? null); };
 

@@ -107,6 +107,7 @@ export default function ClosetPage() {
                 <SwatchChip color={detail.primary_color} label="extracted" />
                 {detail.secondary_color && <SwatchChip color={detail.secondary_color} label="secondary" />}
               </div>
+              <Link href={`/stylist?item=${encodeURIComponent(detail.id)}`} className="solid-btn">try it on</Link>
             </div>
           </div>
         </div>
