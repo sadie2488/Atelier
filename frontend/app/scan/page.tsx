@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ApiError, BACKUP_AVATAR_ID, downscale, fetchAvatar, scanAvatar, type StoredAvatar } from "@/lib/api";
 import { PoseFigure } from "@/components/PoseFigure";
 import { Loader, StatePanel } from "@/components/StatePanel";
@@ -13,6 +13,12 @@ type Step =
   | { s: "processing" }
   | { s: "rejected"; message: string }
   | { s: "success"; avatar: StoredAvatar; reveal: boolean };
+
+// Frame shape (width/height) from the live camera. A portrait feed (phone held upright) is shown
+// whole; a landscape feed (laptop webcam, phone on its side) is center-cropped to 3:4 portrait.
+// Never narrower than 1:2 so the full-body outline always fits.
+const LANDSCAPE_CROP = 3 / 4;
+const frameAspect = (w: number, h: number) => (w && h && w < h ? Math.max(0.5, w / h) : LANDSCAPE_CROP);
 
 const SCAN_ERRORS = new Set(["pose_rejected", "no_person_detected", "unsupported_image"]);
 
@@ -44,6 +50,8 @@ export default function ScanPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [count, setCount] = useState<number | null>(null);
+  const [camAspect, setCamAspect] = useState(LANDSCAPE_CROP);
+  const fitToCamera = () => { const v = videoRef.current; if (v) setCamAspect(frameAspect(v.videoWidth, v.videoHeight)); };
   const countTimer = useRef<number | null>(null);
 
   const clearCountdown = () => { if (countTimer.current !== null) { window.clearInterval(countTimer.current); countTimer.current = null; } setCount(null); };
@@ -99,7 +107,7 @@ export default function ScanPage() {
   const capture = async () => {
     const v = videoRef.current;
     if (!v || !v.videoWidth) return;
-    try { await submit(await downscale(v)); } catch { setStep({ s: "rejected", message: "We couldn't read that frame. Please try again." }); }
+    try { await submit(await downscale(v, 1080, frameAspect(v.videoWidth, v.videoHeight))); } catch { setStep({ s: "rejected", message: "We couldn't read that frame. Please try again." }); }
   };
 
   // 5-second countdown, then capture. Pressing the shutter again cancels it.
@@ -131,9 +139,9 @@ export default function ScanPage() {
         </StatePanel>
       )}
       {step.s === "camera" && (
-        <div className="camera">
+        <div className="camera" style={{ "--cam-ar": camAspect } as CSSProperties}>
           <div className="camera-frame">
-            {!camError && <video ref={videoRef} className="camera-video" playsInline muted />}
+            {!camError && <video ref={videoRef} className="camera-video" playsInline muted onLoadedMetadata={fitToCamera} onResize={fitToCamera} />}
             {camError && <p className="camera-fallback">Camera unavailable — upload a full-length photo instead.</p>}
             <PoseFigure className="pose-overlay" />
             {count !== null && <div className="countdown" role="status" aria-live="assertive">{count}</div>}

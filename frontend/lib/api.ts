@@ -118,17 +118,24 @@ export const BACKUP_AVATAR_ID = process.env.NEXT_PUBLIC_BACKUP_AVATAR_ID || null
 
 // ---------- image helpers ----------
 // Downscale a camera frame or a picked file to ~1080px on the long edge (latency, not a restriction).
-export async function downscale(src: HTMLVideoElement | File, maxEdge = 1080): Promise<Blob> {
+// `aspect` (width/height) center-crops first, matching an object-fit: cover preview, so the scan
+// sends exactly the portrait frame the user saw.
+export async function downscale(src: HTMLVideoElement | File, maxEdge = 1080, aspect?: number): Promise<Blob> {
   let source: CanvasImageSource, w: number, h: number;
   if (src instanceof HTMLVideoElement) { source = src; w = src.videoWidth; h = src.videoHeight; }
   else {
     try { const bmp = await createImageBitmap(src); source = bmp; w = bmp.width; h = bmp.height; }
     catch { throw new ApiError("unsupported_image", "This file isn't an image we can read."); }
   }
+  let sx = 0, sy = 0;
+  if (aspect) {
+    if (w / h > aspect) { const cw = Math.round(h * aspect); sx = Math.round((w - cw) / 2); w = cw; }
+    else { const ch = Math.round(w / aspect); sy = Math.round((h - ch) / 2); h = ch; }
+  }
   const s = Math.min(1, maxEdge / Math.max(w, h));
   const c = document.createElement("canvas");
   c.width = Math.round(w * s); c.height = Math.round(h * s);
-  c.getContext("2d")?.drawImage(source, 0, 0, c.width, c.height);
+  c.getContext("2d")?.drawImage(source, sx, sy, w, h, 0, 0, c.width, c.height);
   return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new ApiError("unsupported_image", "This file isn't an image we can read."))), "image/jpeg", 0.85));
 }
 
